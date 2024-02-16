@@ -2,8 +2,8 @@
 Contributors: sammartin,zoe7633,q3ahmed
 Tags: Microsoft, Clarity, behavioral analytics
 Requires at least: 4.0
-Tested up to: 6.3
-Stable tag: 0.9.3
+Tested up to: 6.4
+Stable tag: 0.9.4
 License: MIT
 License URI: https://docs.opensource.microsoft.com/content/releasing/license.html
 
@@ -85,6 +85,9 @@ Visit [Clarity homepage](https://clarity.microsoft.com?utm_medium=wordpressInsta
 Check out more [frequently asked questions](https://docs.microsoft.com/en-us/clarity/faq) and our [documentation](https://docs.microsoft.com/en-us/clarity/faq).
 
 == Changelog ==
+
+= 0.9.4 =
+* Fixed a cross-site scripting vulnerability.
 
 = 0.9.3 =
 * Fixed some bugs and updated project settings so that only WordPress admins can change their Clarity project.

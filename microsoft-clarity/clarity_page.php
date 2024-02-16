@@ -22,6 +22,8 @@ function refresh_wordpress_id_option() {
 * Displays the embedded iframe in Clarity settings
 **/
 function clarity_section_iframe_callback() {
+    $nonce = wp_create_nonce('wp_ajax_edit_clarity_project_id'); 
+
     $clarity_project_id_option = get_option('clarity_project_id', clarity_project_id_default_value());
     if (empty($clarity_project_id_option)) {
         refresh_wordpress_id_option();
@@ -39,7 +41,7 @@ function clarity_section_iframe_callback() {
 
     $clarity_domain = "https://clarity.microsoft.com/embed";
 
-    $query_params = "?integration=Wordpress&wpsite=$clarity_wp_site";
+    $query_params = "?nonce=$nonce&integration=Wordpress&wpsite=$clarity_wp_site";
 
     // set a QP if user is admin
     if(current_user_can('manage_options')) {
@@ -187,6 +189,17 @@ function add_event_listeners($hook) {
 add_action('wp_ajax_edit_clarity_project_id', "edit_clarity_project_id");
 function edit_clarity_project_id() {
     $new_value = $_POST['new_value'];
+    $nonce = $_POST['nonce'];
+    if(!wp_verify_nonce($nonce, "wp_ajax_edit_clarity_project_id")) {
+        die(
+            json_encode(
+                array(
+                    'success' => false,
+                    'message' => 'Invalid nonce.',
+                )
+            )
+        );
+    }
     // only admins are allowed to edit the Clarity project id
     if (!current_user_can('manage_options')) {
         die(
