@@ -24,12 +24,6 @@ function refresh_wordpress_id_option() {
 function clarity_section_iframe_callback() {
     $nonce = wp_create_nonce('wp_ajax_edit_clarity_project_id'); 
 
-    $clarity_project_id_option = get_option('clarity_project_id', clarity_project_id_default_value());
-    if (empty($clarity_project_id_option)) {
-        refresh_wordpress_id_option();
-    } else {
-        generate_wordpress_id_option_if_empty();
-    }
     $clarity_project_id_option = get_option(
         'clarity_project_id', /* option */
         clarity_project_id_default_value() /* default */
