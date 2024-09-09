@@ -3,7 +3,7 @@ Contributors: sammartin,zoe7633,q3ahmed
 Tags: Microsoft, Clarity, behavioral analytics
 Requires at least: 4.0
 Tested up to: 6.4
-Stable tag: 0.10.0
+Stable tag: 0.10.1
 License: MIT
 License URI: https://docs.opensource.microsoft.com/content/releasing/license.html
 
@@ -86,8 +86,12 @@ Check out more [frequently asked questions](https://docs.microsoft.com/en-us/cla
 
 == Changelog ==
 
+= 0.10.1 =
+* Fix WordPress site id becoming empty for multisite installations.
+* Refactor code in clarity.php and fix linting issues
+
 = 0.10.0 =
-* Add integrate with Clarity hook for external plugins.
+* Add integrate with Clarity hook for external plugins. See [Terms of use](https://clarity.microsoft.com/terms)
 
 = 0.9.4 =
 * Fixed a cross-site scripting vulnerability.
