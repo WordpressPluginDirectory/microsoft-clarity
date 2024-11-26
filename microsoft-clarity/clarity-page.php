@@ -111,6 +111,8 @@ function setup_clarity_notice__info() {
 	global $pagenow;
 	$url = get_admin_url() . 'admin.php?page=microsoft-clarity';
 
+    $learnMoreUrl = 'https://wordpress.org/plugins/microsoft-clarity/';
+
     $clarity_project_id_option = get_option(
         'clarity_project_id', /* option */
         clarity_project_id_default_value() /* default */
@@ -127,11 +129,17 @@ function setup_clarity_notice__info() {
         echo
         '<div class="notice notice-info is-dismissible">
             <p style="font-weight:700">
-                Please setup Clarity to start understanding user behavior on your site.
+                Unlock User Insights with Microsoft Clarity!
+            </p>
+            <p style="font-weight:500">
+                Almost there! Start tracking user behavior on your site with Microsoft Clarity. See exactly where on your site users click, scroll, and get stuck. It takes just a few moments to set up.
             </p>
             <p>
                 <a class="button-primary" href="'. $url .'">
                     Setup Clarity
+                </a>
+                <a class="button-primary" style="margin-left:10px" href="'. $learnMoreUrl .'">
+                    Learn more
                 </a>
             </p>
         </div>';

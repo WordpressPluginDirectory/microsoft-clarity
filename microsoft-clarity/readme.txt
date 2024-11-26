@@ -2,8 +2,8 @@
 Contributors: sammartin,zoe7633,q3ahmed
 Tags: Microsoft, Clarity, behavioral analytics
 Requires at least: 4.0
-Tested up to: 6.4
-Stable tag: 0.10.2
+Tested up to: 6.7
+Stable tag: 0.10.3
 License: MIT
 License URI: https://docs.opensource.microsoft.com/content/releasing/license.html
 
@@ -11,13 +11,19 @@ How do you make your website great? Clarity can help you quickly see what's work
 
 == Description ==
 
-Clarity is a free web analytics tool that helps you see what's working on your site and where people get stuck. With features such as session recordings and heatmaps, you'll gain a deeper understanding of how your users interact with your site, and get clear insights on how to improve your design to grow revenue and increase user retention.
+Clarity is a free behavioral analytics tool that helps you see what’s working on your site and where people get stuck. With features such as session recordings and heatmaps, you’ll gain a deeper understanding of how your users interact with your site, and get clear insights on how to improve your design to grow revenue and increase user retention. 
 
 **Session recordings** allow you to examine user behavior as it happened. You'll see where things are working smoothly and where your users drop off.
 
 **Heatmaps** show you where your users clicked and scrolled, and how they moved around your site. You'll discover which parts of the page drive the most engagement and which parts get less traffic.
 
 **Insights** help you make data-driven decisions to streamline your design. Zero in on relevant user sessions and root out problems like clicks that go nowhere, rage clicks, and excessive scrolling.
+
+**Clarity chat** allows you to interact with Clarity through an intuitive conversational interface to get insights and recommendations using Copilot.
+
+Get **Clarity Copilot summarized insights from heatmaps** to quickly understand user behavior patterns.
+
+Receive concise summaries of session recordings to identify key user interactions and issues efficiently using Clarity Copilot.
 
 The **metrics dashboard** offers a visual overview of your site's performance, popular pages, and insights about your users, such as where they're from and which devices and browsers they use.
 
@@ -27,7 +33,8 @@ The **metrics dashboard** offers a visual overview of your site's performance, p
 
 **Stop guessing and get Clarity.** Setup is easy. You can start monitoring activity in minutes.
 
-[Take a super-quick tour of Clarity.](https://claritystatic.azureedge.net/videos/clarityIntro.mp4)
+Review our [Privacy Policy](https://www.microsoft.com/en-gb/privacy/privacystatement) and [Legal Terms](https://clarity.microsoft.com/terms) for more details. 
+
 
 == Installation ==
 
@@ -85,6 +92,9 @@ Visit [Clarity homepage](https://clarity.microsoft.com?utm_medium=wordpressInsta
 Check out more [frequently asked questions](https://docs.microsoft.com/en-us/clarity/faq) and our [documentation](https://docs.microsoft.com/en-us/clarity/faq).
 
 == Changelog ==
+
+= 0.10.3 =
+* Update plugin description and the Setup Clarity notice.
 
 = 0.10.2 =
 * Fix issues with plugin activation, deactivation, and deletion in multisite installations.
