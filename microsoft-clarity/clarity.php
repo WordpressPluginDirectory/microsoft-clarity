@@ -3,7 +3,7 @@
  * Plugin Name:       Microsoft Clarity
  * Plugin URI:        https://clarity.microsoft.com/
  * Description:       With data and session replay from Clarity, you'll see how people are using your site — where they get stuck and what they love.
- * Version:           0.10.3
+ * Version:           0.10.4
  * Author:            Microsoft
  * Author URI:        https://www.microsoft.com/en-us/
  * License:           MIT
@@ -17,8 +17,35 @@ require_once plugin_dir_path( __FILE__ ) . '/clarity-hooks.php';
  * Runs when Clarity Plugin is activated.
  */
 register_activation_hook( __FILE__, 'clarity_on_activation' );
-function clarity_on_activation( $network_wide ) {
+add_action( 'admin_init', 'clarity_activation_redirect' );
+
+/**
+ * Plugin activation callback. Registers option to redirect on next admin load.
+ */
+function clarity_on_activation( $network_wide) {
+	// update activate option
 	clrt_update_clarity_options( 'activate', $network_wide );
+
+	// Don't do redirects when multiple plugins are bulk activated
+	if (
+		( isset( $_REQUEST['action'] ) && 'activate-selected' === $_REQUEST['action'] ) &&
+		( isset( $_POST['checked'] ) && count( $_POST['checked'] ) > 1 ) ) {
+			return;
+	}
+	add_option( 'clarity_activation_redirect', wp_get_current_user()->ID );
+}
+
+/**
+ * Redirects the user after plugin activation
+ */
+function clarity_activation_redirect() {
+	// Make sure it is the user that activated the plugin
+	if ( is_user_logged_in() && intval( get_option( 'clarity_activation_redirect', false ) ) === wp_get_current_user()->ID ) {
+		// Make sure we don't redirect again
+		delete_option( 'clarity_activation_redirect' );
+		wp_safe_redirect( admin_url( 'admin.php?page=microsoft-clarity' ) );
+		exit;
+	}
 }
 
 /**

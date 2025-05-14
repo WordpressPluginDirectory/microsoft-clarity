@@ -33,9 +33,11 @@ function clarity_section_iframe_callback() {
         /* default */
     );
 
+    $site_url = home_url();
+
     $clarity_domain = "https://clarity.microsoft.com/embed";
 
-    $query_params = "?nonce=$nonce&integration=Wordpress&wpsite=$clarity_wp_site";
+    $query_params = "?nonce=$nonce&integration=Wordpress&wpsite=$clarity_wp_site&siteurl=$site_url";
 
     // set a QP if user is admin
     if(current_user_can('manage_options')) {
@@ -52,8 +54,8 @@ function clarity_section_iframe_callback() {
     }
 
 	?>
-    <div style="width:100%;padding-right:15px;margin-top:20px;box-sizing:border-box;">
-        <iframe sandbox="allow-modals allow-forms allow-scripts allow-same-origin allow-popups allow-storage-access-by-user-activation" src="<?php echo $iframe_src ?>" width="100%" height="1300px" title="Microsoft Clarity" /> 
+    <div style="width:100%;height:100vh;padding-right:15px;margin-top:0px;box-sizing:border-box;">
+        <iframe sandbox="allow-modals allow-forms allow-scripts allow-same-origin allow-popups allow-storage-access-by-user-activation" src="<?php echo $iframe_src ?>" width="100%" height="100%" title="Microsoft Clarity" /> 
     </div>
     <?php
 }
