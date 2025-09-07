@@ -3,7 +3,7 @@
  * Plugin Name:       Microsoft Clarity
  * Plugin URI:        https://clarity.microsoft.com/
  * Description:       With data and session replay from Clarity, you'll see how people are using your site — where they get stuck and what they love.
- * Version:           0.10.4
+ * Version:           0.10.7
  * Author:            Microsoft
  * Author URI:        https://www.microsoft.com/en-us/
  * License:           MIT
@@ -155,4 +155,66 @@ function clarity_page_link( $links ) {
 	$clarity_link = "<a href='$url'>" . __( 'Clarity Dashboard' ) . '</a>';
 	array_unshift( $links, $clarity_link );
 	return $links;
+}
+
+/**
+ * Send request info to Clarity BE.
+ */
+add_action( 'init', 'clarity_send_request_info' );
+function clarity_send_request_info() {
+	$p_id_option = get_option( 'clarity_project_id' );
+	$clarity_wp_site = get_option('clarity_wordpress_site_id');
+	try {
+		if ( ! empty( $p_id_option ) && ! empty( $clarity_wp_site ) && ! is_admin() ) {
+
+			$envelope = array(
+			'projectId'     => $p_id_option,
+			'sessionId'     => "",
+			'integrationId' => $clarity_wp_site,
+			'version'       => 'WordPress-0.10.7',
+			);
+
+			$analytics = array(
+			'time'   => time(),
+			'ip'     => get_ip_address(),
+			'ua'     => isset($_SERVER['HTTP_USER_AGENT']) ? sanitize_text_field($_SERVER['HTTP_USER_AGENT']) : 'Unkonwn',
+			'url'    => home_url($_SERVER['REQUEST_URI']),
+			'method' => isset($_SERVER['REQUEST_METHOD']) ? $_SERVER['REQUEST_METHOD'] : 'Unkonwn',
+			);
+
+			$body = array(
+				'envelope'  => $envelope,
+				'analytics' => $analytics,
+			);
+
+			$args = array(
+				'body'        => json_encode($body),
+				'timeout'     => '1',
+				'redirection' => '5',
+				'httpversion' => '1.0',
+				'blocking'    => false,
+				'headers'     => array( 'Content-Type' => 'application/json' ),
+				'cookies'     => array(),
+			);
+
+			$response = wp_remote_post('https://ai.clarity.ms/collect-request', $args );
+		}
+	} catch (Throwable $e) {
+		// do nothing
+	}
+}
+
+// ref: https://usersinsights.com/wordpress-get-user-ip/
+function get_ip_address(){
+    foreach (array('HTTP_CLIENT_IP', 'HTTP_X_FORWARDED_FOR', 'HTTP_X_FORWARDED', 'HTTP_X_CLUSTER_CLIENT_IP', 'HTTP_FORWARDED_FOR', 'HTTP_FORWARDED', 'REMOTE_ADDR') as $key){
+        if (array_key_exists($key, $_SERVER) === true){
+            foreach (explode(',', $_SERVER[$key]) as $ip){
+                $ip = trim($ip);
+
+                if (filter_var($ip, FILTER_VALIDATE_IP, FILTER_FLAG_NO_PRIV_RANGE | FILTER_FLAG_NO_RES_RANGE) !== false){
+                    return $ip;
+                }
+            }
+        }
+    }
 }

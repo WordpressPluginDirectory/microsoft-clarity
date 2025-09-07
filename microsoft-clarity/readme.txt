@@ -3,7 +3,7 @@ Contributors: sammartin,zoe7633,q3ahmed
 Tags: Microsoft, Clarity, behavioral analytics
 Requires at least: 4.0
 Tested up to: 6.8.1
-Stable tag: 0.10.4
+Stable tag: 0.10.7
 License: MIT
 License URI: https://docs.opensource.microsoft.com/content/releasing/license.html
 
@@ -92,6 +92,15 @@ Visit [Clarity homepage](https://clarity.microsoft.com?utm_medium=wordpressInsta
 Check out more [frequently asked questions](https://docs.microsoft.com/en-us/clarity/faq) and our [documentation](https://docs.microsoft.com/en-us/clarity/faq).
 
 == Changelog ==
+
+= 0.10.7 =
+* Minor fix.
+
+= 0.10.6 =
+* Performance improvements.
+
+= 0.10.5 =
+* Analytics improvements.
 
 = 0.10.4 =
 * Update Clarity iframe query params, redirect on activate.
