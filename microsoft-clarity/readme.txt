@@ -3,7 +3,7 @@ Contributors: sammartin,zoe7633,q3ahmed
 Tags: Microsoft, Clarity, behavioral analytics
 Requires at least: 4.0
 Tested up to: 6.8.1
-Stable tag: 0.10.7
+Stable tag: 0.10.16
 License: MIT
 License URI: https://docs.opensource.microsoft.com/content/releasing/license.html
 
@@ -11,7 +11,7 @@ How do you make your website great? Clarity can help you quickly see what's work
 
 == Description ==
 
-Clarity is a free behavioral analytics tool that helps you see what’s working on your site and where people get stuck. With features such as session recordings and heatmaps, you’ll gain a deeper understanding of how your users interact with your site, and get clear insights on how to improve your design to grow revenue and increase user retention. 
+Clarity is a free behavioral analytics tool that helps you see what’s working on your site and where people get stuck. With features such as session recordings and heatmaps, you’ll gain a deeper understanding of how your users interact with your site, and get clear insights on how to improve your design to grow revenue and increase user retention.
 
 **Session recordings** allow you to examine user behavior as it happened. You'll see where things are working smoothly and where your users drop off.
 
@@ -33,14 +33,14 @@ The **metrics dashboard** offers a visual overview of your site's performance, p
 
 **Stop guessing and get Clarity.** Setup is easy. You can start monitoring activity in minutes.
 
-Review our [Privacy Policy](https://www.microsoft.com/en-gb/privacy/privacystatement) and [Legal Terms](https://clarity.microsoft.com/terms) for more details. 
+Review our [Privacy Policy](https://www.microsoft.com/en-gb/privacy/privacystatement) and [Legal Terms](https://clarity.microsoft.com/terms) for more details.
 
 
 == Installation ==
 
-Installation has never been easier. No action is required on Clarity site.      
+Installation has never been easier. No action is required on Clarity site.
 
-The plugin is inclusive, you can create a new project or connect to an existing one whether you're signed up or a new member.   
+The plugin is inclusive, you can create a new project or connect to an existing one whether you're signed up or a new member.
 
 Just install the plugin and start using Clarity on Wordpress.
 
@@ -92,6 +92,32 @@ Visit [Clarity homepage](https://clarity.microsoft.com?utm_medium=wordpressInsta
 Check out more [frequently asked questions](https://docs.microsoft.com/en-us/clarity/faq) and our [documentation](https://docs.microsoft.com/en-us/clarity/faq).
 
 == Changelog ==
+= 0.10.16 =
+* Analytics improvements.
+
+= 0.10.15 =
+* Bugfix.
+
+= 0.10.14 =
+* Bugfix.
+
+= 0.10.13 =
+* Bugfix.
+
+= 0.10.12 =
+* Bugfix.
+
+= 0.10.11 =
+* Plugin improvements.
+
+= 0.10.10 =
+* Plugin improvements.
+
+= 0.10.9 =
+* Analytics improvements.
+
+= 0.10.8 =
+* Performance improvements.
 
 = 0.10.7 =
 * Minor fix.
@@ -138,7 +164,7 @@ Check out more [frequently asked questions](https://docs.microsoft.com/en-us/cla
 = 0.8.0 =
 * Ability to create a new Clarity project and connect to it on WordPress without needing to go to Clarity site.
 * Ability to connect to an existing Clarity project on WordPress without needing to go to Clarity site.
-* Abiliy to sign up to Clarity on WordPress without needing to go to Clarity site.
+* Ability to sign up to Clarity on WordPress without needing to go to Clarity site.
 
 = 0.7.5 =
 * Minor fix.
@@ -165,7 +191,7 @@ Check out more [frequently asked questions](https://docs.microsoft.com/en-us/cla
 * Bug fixes.
 
 = 0.3 =
-* Compatability with the latest WordPress version (v5.7).
+* Compatibility with the latest WordPress version (v5.7).
 
 = 0.2 =
 * Details and Installation instruction updates.
