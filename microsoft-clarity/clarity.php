@@ -4,7 +4,7 @@
  * Plugin Name:       Microsoft Clarity
  * Plugin URI:        https://clarity.microsoft.com/
  * Description:       With data and session replay from Clarity, you'll see how people are using your site — where they get stuck and what they love.
- * Version:           0.10.16
+ * Version:           0.10.17
  * Author:            Microsoft
  * Author URI:        https://www.microsoft.com/en-us/
  * License:           MIT
@@ -110,6 +110,9 @@ function clrt_update_clarity_options_handler($action, $network_wide)
 			if (! $id) {
 				update_option('clarity_wordpress_site_id', wp_generate_uuid4());
 			}
+
+			clarity_create_collect_events_table();
+			clarity_schedule_collect_recurring();
 			break;
 		case 'deactivate':
 			// Plugin activation/deactivation is handled differently in the database for site-level and network-wide activation.
@@ -122,11 +125,16 @@ function clrt_update_clarity_options_handler($action, $network_wide)
 
 			update_option('clarity_wordpress_site_id', '');
 			update_option('clarity_project_id', '');
+			clarity_flush_and_clear_collect_recurring();
 			break;
 		case 'uninstall':
 			delete_option('clarity_wordpress_site_id');
 			delete_option('clarity_project_id');
 			delete_option('clarity_is_agent_enabled');
+			// Cleanup for the option used up to version 0.10.16. Should remove this after users migrate to 0.10.17+ where this option is no longer used.
+			delete_option('clarity_collect_batch');
+			clarity_flush_and_clear_collect_recurring();
+			clarity_drop_collect_events_table();
 			break;
 	}
 }

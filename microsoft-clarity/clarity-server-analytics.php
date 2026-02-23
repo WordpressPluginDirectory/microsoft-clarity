@@ -6,8 +6,8 @@
 
 const CLARITY_COLLECT_ENDPOINT = 'https://ai.clarity.ms/collect';
 
-const CLARITY_COLLECT_BATCH_KEY = 'clarity_collect_batch';
-const CLARITY_COLLECT_BATCH_SIZE = 50;
+require_once plugin_dir_path(__FILE__) . '/clarity-collect-storage.php';
+require_once plugin_dir_path(__FILE__) . '/clarity-collect-batch.php';
 
 /**
  * Collects and sends Clarity events in batches.
@@ -33,60 +33,13 @@ function clarity_collect_event()
 
         // Construct and buffer the collect event payload for batch sending
         $event = clarity_construct_collect_event($clarity_project_id);
-        clarity_buffer_collect_event($event);
+        clarity_insert_collect_event($event);
     } catch (Exception $e) {
         // Silently fail on any error
     }
 }
 
 add_action('shutdown', 'clarity_collect_event');
-
-/**
- * Buffers a collect event payload for batch sending.
- *
- * @param array $event The event payload to buffer.
- */
-function clarity_buffer_collect_event($event)
-{
-    global $wpdb;
-
-    if (!$wpdb->ready) {
-        return;
-    }
-
-    $batch = array();
-    $shouldSendBatch = false;
-
-    try {
-        // Lock to prevent race conditions
-        $wpdb->query('START TRANSACTION');
-
-        // Fetch existing event batch
-        $batch = get_option(CLARITY_COLLECT_BATCH_KEY, array());
-
-        // Append the new payload to the batch
-        $batch[] = $event;
-
-        // If the batch size reached the maximum or the elapsed time exceeded the limit,
-        // clear it from the database and send it after releasing the lock
-        if (count($batch) >= CLARITY_COLLECT_BATCH_SIZE) {
-            update_option(CLARITY_COLLECT_BATCH_KEY, array(), false);
-            $shouldSendBatch = true;
-        }
-        // Otherwise, write the updated batch
-        else {
-            update_option(CLARITY_COLLECT_BATCH_KEY, $batch, false);
-        }
-    } finally {
-        // Release the lock
-        $wpdb->query('COMMIT');
-    }
-
-    // Send the batch if needed
-    if ($shouldSendBatch) {
-        clarity_send_collect_event_batch($batch);
-    }
-}
 
 //
 // Helper Functions
