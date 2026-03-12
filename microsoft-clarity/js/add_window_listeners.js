@@ -1,5 +1,6 @@
 const MessageOperation = {
   PROJECT_ID_CHANGE: 1,
+  REDIRECT: 2,
   AGENT_ENABLED_CHANGE: 4,
 };
 
@@ -86,5 +87,42 @@ const agentsActionCallback = (event) => {
     });
 };
 
+const redirectActionCallback = (event) => {
+  const siteOrigin = window.location.origin;
+  
+  // SECURITY: Only accept messages from Clarity dashboard or our own site
+  if (event.origin !== "https://clarity.microsoft.com" && event.origin !== siteOrigin) {
+    return;
+  }
+  
+  // Check if the message has the correct structure
+  const postedMessage = event?.data;
+  if (!postedMessage || postedMessage.operation !== MessageOperation.REDIRECT || !postedMessage.redirectURL) {
+    return;
+  }
+  
+  const redirectURL = postedMessage.redirectURL;
+  
+  // SECURITY: Validate the redirect URL is a WordPress admin URL on our domain
+  if (redirectURL.indexOf(siteOrigin + "/wp-admin/") !== 0) {
+    return;
+  }
+  
+  // SECURITY: Only allow specific WordPress admin pages
+  const allowedPages = [
+    "/wp-admin/options-permalink.php",
+  ];
+  
+  const pageAllowed = allowedPages.some(page => redirectURL.indexOf(page) !== -1);
+  
+  if (!pageAllowed) {
+    return;
+  }
+  
+  // Open in a new tab (bypasses iframe sandbox restrictions)
+  window.open(redirectURL, "_blank");
+};
+
+window.addEventListener("message", redirectActionCallback, false);
 window.addEventListener("message", agentsActionCallback, false);
 window.addEventListener("message", projectActionCallback, false);

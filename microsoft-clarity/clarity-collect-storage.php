@@ -58,6 +58,12 @@ function clarity_insert_collect_event($event)
         return false;
     }
 
+    if (!clarity_collect_events_table_exists()) {
+        clarity_create_collect_events_table();
+    }
+
+    clarity_maybe_schedule_collect_recurring();
+
     $payload = wp_json_encode($event);
     if ($payload === false) { // wp_json_encode returns false on failure
         return false;
@@ -143,11 +149,11 @@ function clarity_get_collect_events_table_name()
  *
  * @return bool True when the table exists.
  */
-function clarity_collect_events_table_exists()
+function clarity_collect_events_table_exists($force_refresh = false)
 {
     static $table_exists = null;
 
-    if ($table_exists !== null) {
+    if (!$force_refresh && $table_exists !== null) {
         return $table_exists;
     }
 
@@ -157,17 +163,5 @@ function clarity_collect_events_table_exists()
     $table_exists = ($wpdb->get_var($wpdb->prepare('SHOW TABLES LIKE %s', $like)) === $table);
 
     return $table_exists;
-}
-
-/**
- * Checks whether the collect events table is ready for use.
- *
- * @return bool True when ready.
- */
-function clarity_collect_events_table_ready()
-{
-    global $wpdb;
-
-    return $wpdb->ready && clarity_collect_events_table_exists();
 }
 

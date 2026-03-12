@@ -4,13 +4,17 @@
  * Plugin Name:       Microsoft Clarity
  * Plugin URI:        https://clarity.microsoft.com/
  * Description:       With data and session replay from Clarity, you'll see how people are using your site — where they get stuck and what they love.
- * Version:           0.10.17
+ * Version:           0.10.21
  * Author:            Microsoft
  * Author URI:        https://www.microsoft.com/en-us/
  * License:           MIT
  * License URI:       https://docs.opensource.microsoft.com/content/releasing/license.html
  */
 
+require_once plugin_dir_path(__FILE__) . '/includes/brandagent-config.php';
+require_once plugin_dir_path(__FILE__) . '/includes/brandagent-webhooks.php';
+require_once plugin_dir_path(__FILE__) . '/includes/brandagent-custom-webhooks.php';
+require_once plugin_dir_path(__FILE__) . '/includes/brandagent-rest-api.php';
 require_once plugin_dir_path(__FILE__) . '/clarity-page.php';
 require_once plugin_dir_path(__FILE__) . '/clarity-hooks.php';
 require_once plugin_dir_path(__FILE__) . '/clarity-server-analytics.php';
@@ -28,6 +32,10 @@ function clarity_on_activation($network_wide)
 {
 	// update activate option
 	clrt_update_clarity_options('activate', $network_wide);
+
+	// Register Brand Agent routes and flush rewrite rules
+	brandagent_register_routes();
+	flush_rewrite_rules();
 
 	// Don't do redirects when multiple plugins are bulk activated
 	if (
@@ -60,6 +68,7 @@ register_deactivation_hook(__FILE__, 'clarity_on_deactivation');
 function clarity_on_deactivation($network_wide)
 {
 	clrt_update_clarity_options('deactivate', $network_wide);
+	flush_rewrite_rules();
 }
 
 /**
@@ -111,8 +120,16 @@ function clrt_update_clarity_options_handler($action, $network_wide)
 				update_option('clarity_wordpress_site_id', wp_generate_uuid4());
 			}
 
-			clarity_create_collect_events_table();
-			clarity_schedule_collect_recurring();
+			// Initialize BAInjectFrontendScript with default value
+			if ( get_option( 'BAInjectFrontendScript' ) === false ) {
+				add_option( 'BAInjectFrontendScript', 'false' );
+			}
+
+			// Resume all BrandAgent webhooks
+			if ( class_exists( 'BrandAgent_Webhooks' ) ) {
+				BrandAgent_Webhooks::resume_all_brandagent_webhooks();
+			}
+
 			break;
 		case 'deactivate':
 			// Plugin activation/deactivation is handled differently in the database for site-level and network-wide activation.
@@ -126,15 +143,35 @@ function clrt_update_clarity_options_handler($action, $network_wide)
 			update_option('clarity_wordpress_site_id', '');
 			update_option('clarity_project_id', '');
 			clarity_flush_and_clear_collect_recurring();
+
+			// Pause all BrandAgent webhooks
+			if ( class_exists( 'BrandAgent_Webhooks' ) ) {
+				BrandAgent_Webhooks::pause_all_brandagent_webhooks();
+			}
+
 			break;
 		case 'uninstall':
+			handle_brandagent_uninstall();
+
 			delete_option('clarity_wordpress_site_id');
 			delete_option('clarity_project_id');
-			delete_option('clarity_is_agent_enabled');
+			delete_option( 'BAOauthSuccess' );
+            delete_option( 'BAInjectFrontendScript' );
 			// Cleanup for the option used up to version 0.10.16. Should remove this after users migrate to 0.10.17+ where this option is no longer used.
 			delete_option('clarity_collect_batch');
 			clarity_flush_and_clear_collect_recurring();
 			clarity_drop_collect_events_table();
+
+			// Delete all BrandAgent webhooks
+			if ( class_exists( 'BrandAgent_Webhooks' ) ) {
+				BrandAgent_Webhooks::delete_all_brandagent_webhooks();
+			}
+
+			// Delete stored HMAC secret for this store
+			if ( function_exists( 'brandagent_delete_hmac_secret' ) ) {
+				brandagent_delete_hmac_secret();
+			}
+
 			break;
 	}
 }
@@ -178,9 +215,13 @@ function clarity_add_script_to_header()
 add_action('wp_head', 'brand_agent_add_script_to_header');
 function brand_agent_add_script_to_header()
 {
-	$is_agent_enabled = get_option('clarity_is_agent_enabled');
-	$should_inject_brand_agents_script = should_inject_brand_agents_script();
-	if ($is_agent_enabled == 1 && $should_inject_brand_agents_script) {
+	$ba_oauth_success = get_option( 'BAOauthSuccess' );
+	$should_inject_on_woo_page = should_inject_brand_agents_script();
+
+	// Inject if: oauth succeeded AND (WooCommerce page OR BAInjectFrontendScript=true)
+	$should_inject = $ba_oauth_success == 1 && $should_inject_on_woo_page;
+
+	if ( $should_inject ) {
 		$frontend_injection_url = 'https://adsagentclientafd-b7hqhjdrf3fpeqh2.b01.azurefd.net/frontendInjection.js'
 	?>
 		<script>
@@ -264,42 +305,142 @@ function check_if_installed_plugin_version_is_latest()
 /**
  * Check if script should be injected on current page
  */
-function should_inject_brand_agents_script()
-{
-	// Inject on WooCommerce pages
-	if (function_exists('is_woocommerce') && is_woocommerce()) {
-		return true;
+function should_inject_brand_agents_script() {
+	if ( get_option( 'BAInjectFrontendScript', 'false' ) === 'true' ) {
+		// Inject on WooCommerce pages
+		if ( function_exists( 'is_woocommerce' ) && is_woocommerce() ) {
+			return true;
+		}
+
+		// Inject on shop page
+		if ( function_exists( 'is_shop' ) && is_shop() ) {
+			return true;
+		}
+
+		// Inject on product pages
+		if ( function_exists( 'is_product' ) && is_product() ) {
+			return true;
+		}
+
+		// Inject on cart page
+		if ( function_exists( 'is_cart' ) && is_cart() ) {
+			return true;
+		}
+
+		// Inject on checkout page
+		if ( function_exists( 'is_checkout' ) && is_checkout() ) {
+			return true;
+		}
+
+		// Inject on account pages
+		if ( function_exists( 'is_account_page' ) && is_account_page() ) {
+			return true;
+		}
+
+		// Inject on homepage if it's the shop
+		if ( is_front_page() && get_option( 'show_on_front' ) === 'page' && function_exists( 'wc_get_page_id' ) && get_option( 'page_on_front' ) == wc_get_page_id( 'shop' ) ) {
+			return true;
+		}
 	}
 
-	// Inject on shop page
-	if (function_exists('is_shop') && is_shop()) {
-		return true;
-	}
+    return false;
+}
 
-	// Inject on product pages
-	if (function_exists('is_product') && is_product()) {
-		return true;
-	}
+/**
+ * Brand Agent Proxy Endpoints
+ * Rewrite rules and handlers for proxying requests from the frontend to the
+ * BrandAgent backend server. HMAC helper functions are defined in
+ * includes/brandagent-config.php (loaded first to be available during OAuth callback).
+ */
 
-	// Inject on cart page
-	if (function_exists('is_cart') && is_cart()) {
-		return true;
-	}
+/**
+ * Register rewrite rules for Brand Agent proxy endpoints
+ */
+function brandagent_register_routes() {
+    add_rewrite_rule(
+        '^a/msba/(.*)',
+        'index.php?brandagent_api=1&brandagent_path=$matches[1]',
+        'top'
+    );
+}
+add_action( 'init', 'brandagent_register_routes' );
 
-	// Inject on checkout page
-	if (function_exists('is_checkout') && is_checkout()) {
-		return true;
-	}
+/**
+ * Register query vars for Brand Agent endpoints
+ */
+function brandagent_register_query_vars( $vars ) {
+    $vars[] = 'brandagent_api';
+    $vars[] = 'brandagent_path';
+    return $vars;
+}
+add_filter( 'query_vars', 'brandagent_register_query_vars' );
 
-	// Inject on account pages
-	if (function_exists('is_account_page') && is_account_page()) {
-		return true;
-	}
+/**
+ * Handle Brand Agent custom endpoint requests
+ */
+function brandagent_handle_custom_endpoint() {
+    if ( intval( get_query_var( 'brandagent_api' ) ) === 1 ) {
+        require_once plugin_dir_path( __FILE__ ) . 'includes/brandagent-endpoint.php';
+        exit;
+    }
+}
+add_action( 'template_redirect', 'brandagent_handle_custom_endpoint' );
 
-	// Inject on homepage if it's the shop
-	if (is_front_page() && get_option('show_on_front') === 'page' && function_exists('wc_get_page_id') && get_option('page_on_front') == wc_get_page_id('shop')) {
-		return true;
-	}
+/**
+ * Register Brand Agent REST API endpoints
+ */
+function brandagent_register_rest_api() {
+	$rest_api = new BrandAgent_REST_API();
+	$rest_api->register_routes();
+}
+add_action( 'rest_api_init', 'brandagent_register_rest_api' );
 
-	return false;
+/**
+ * Check for pending webhook deletion after WordPress is initialized
+ * This handles the case where webhook deletion was requested but WooCommerce wasn't loaded yet
+ * Uses 'init' hook with priority 20 to ensure WooCommerce is available
+ */
+add_action( 'init', 'brandagent_process_pending_webhook_deletion', 20 );
+function brandagent_process_pending_webhook_deletion() {
+    $pending = get_transient( 'brandagent_pending_webhook_deletion' );
+    
+    if ( ! $pending ) {
+        return;
+    }
+    
+    // Check if WooCommerce is available
+    if ( ! class_exists( 'WooCommerce' ) || ! class_exists( 'WC_Webhook' ) ) {
+        error_log( 'BrandAgent: WooCommerce not available yet for pending webhook deletion' );
+        return;
+    }
+    
+    // Delete the transient first to prevent multiple attempts
+    delete_transient( 'brandagent_pending_webhook_deletion' );
+    
+    if ( class_exists( 'BrandAgent_Webhooks' ) ) {
+        $deleted_count = BrandAgent_Webhooks::delete_all_brandagent_webhooks();
+        error_log( 'BrandAgent: Deleted ' . $deleted_count . ' webhook(s) via pending deletion' );
+    } else {
+        error_log( 'BrandAgent: BrandAgent_Webhooks class not available for pending deletion' );
+    }
+}
+
+/**
+ * Call Clarity dashboard uninstall endpoint to clean up BA server data
+ * This function can be called during plugin uninstall to notify the backend
+ */
+function handle_brandagent_uninstall() {
+	if ( get_option( 'BAOauthSuccess' ) == 1 ) {
+		$site_url = home_url();
+
+		// HMAC-signed request through Clarity proxy
+		$clarity_domain = BrandAgent_Config::get_clarity_server_url();
+		$uninstall_endpoint = $clarity_domain . '/woocommerce/uninstall';
+		$response = brandagent_sign_outbound_request( $uninstall_endpoint, wp_json_encode( array( 'storeUrl' => $site_url ) ), 'POST', 15 );
+
+		// Log error if call fails, but continue with local cleanup
+		if ( is_wp_error( $response ) ) {
+			error_log( 'BrandAgent: Failed to call uninstall endpoint: ' . $response->get_error_message() );
+		}
+	}
 }

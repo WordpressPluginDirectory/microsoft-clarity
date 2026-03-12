@@ -2,8 +2,8 @@
 Contributors: sammartin,zoe7633,q3ahmed
 Tags: Microsoft, Clarity, behavioral analytics
 Requires at least: 4.0
-Tested up to: 6.8.1
-Stable tag: 0.10.17
+Tested up to: 6.9.1
+Stable tag: 0.10.21
 License: MIT
 License URI: https://docs.opensource.microsoft.com/content/releasing/license.html
 
@@ -92,6 +92,18 @@ Visit [Clarity homepage](https://clarity.microsoft.com?utm_medium=wordpressInsta
 Check out more [frequently asked questions](https://docs.microsoft.com/en-us/clarity/faq) and our [documentation](https://docs.microsoft.com/en-us/clarity/faq).
 
 == Changelog ==
+
+= 0.10.21 =
+* Adding Brand Agents support.
+
+= 0.10.20 =
+* Plugin improvement and bugfix.
+
+= 0.10.19 =
+* Bugfix.
+
+= 0.10.18 =
+* Plugin improvements.
 
 = 0.10.17 =
 * Analytics bugfix and improvements.

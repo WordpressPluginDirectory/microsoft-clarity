@@ -30,15 +30,15 @@ function clarity_register_collect_schedule($schedules)
 add_filter('cron_schedules', 'clarity_register_collect_schedule');
 
 /**
- * Schedules the recurring batch worker.
+ * Schedules the recurring batch worker if not already scheduled.
  */
-function clarity_schedule_collect_recurring()
+function clarity_maybe_schedule_collect_recurring()
 {
     if (wp_next_scheduled(CLARITY_COLLECT_CRON_HOOK)) {
         return;
     }
 
-    wp_schedule_event(time(), CLARITY_COLLECT_CRON_SCHEDULE, CLARITY_COLLECT_CRON_HOOK);
+    wp_schedule_event(time() + 5, CLARITY_COLLECT_CRON_SCHEDULE, CLARITY_COLLECT_CRON_HOOK);
 }
 
 /**
@@ -55,7 +55,9 @@ function clarity_flush_and_clear_collect_recurring()
  */
 function clarity_send_collect_event_batch_worker()
 {
-    if (!clarity_collect_events_table_ready()) {
+    global $wpdb;
+
+    if (!$wpdb->ready || !clarity_collect_events_table_exists()) {
         return;
     }
 
