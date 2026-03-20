@@ -312,12 +312,17 @@ class BrandAgent_Endpoint {
 
                 if ( is_wp_error( $response ) ) {
                     error_log( 'BrandAgent: Failed to notify complete-onboarding: ' . $response->get_error_message() );
-                }
-
-                // Create/update all webhooks
-                if ( class_exists( 'BrandAgent_Webhooks' ) ) {
-                    $results = BrandAgent_Webhooks::create_webhooks();
-                    error_log( 'BrandAgent: Webhooks created on store approval: ' . print_r( $results, true ) );
+                } else {
+                    $status_code = wp_remote_retrieve_response_code( $response );
+                    if ( $status_code === 200 ) {
+                        // Create/update all webhooks only on successful onboarding
+                        if ( class_exists( 'BrandAgent_Webhooks' ) ) {
+                            $results = BrandAgent_Webhooks::create_webhooks();
+                            error_log( 'BrandAgent: Webhooks created on store approval: ' . print_r( $results, true ) );
+                        }
+                    } else {
+                        error_log( 'BrandAgent: complete-onboarding returned status ' . $status_code . ', skipping webhook creation' );
+                    }
                 }
             }
 

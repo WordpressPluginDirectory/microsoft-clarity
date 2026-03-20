@@ -578,7 +578,7 @@ function brandagent_order_webhook_payload( $payload, $resource, $resource_id, $w
     }
     
     // Get cart ID if available (stored as meta during checkout)
-    $cart_id = $order->get_meta( '_cart_hash' );
+    $cart_id = $order->get_cart_hash();
     if ( ! $cart_id ) {
         $cart_id = $order->get_customer_id() ? 'user_' . $order->get_customer_id() : null;
     }
@@ -646,7 +646,8 @@ function brandagent_save_attrs_to_order( $order ) {
         $order->save();
     }
 }
-add_action( 'woocommerce_checkout_order_created', 'brandagent_save_attrs_to_order' );
+add_action( 'woocommerce_checkout_order_created', 'brandagent_save_attrs_to_order' );          // classic checkout
+add_action( 'woocommerce_store_api_checkout_update_order_meta', 'brandagent_save_attrs_to_order' ); // blocks checkout (another way to checkout)
 
 /**
  * Build the payload for checkout webhooks

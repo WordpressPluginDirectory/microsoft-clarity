@@ -4,7 +4,7 @@
  * Plugin Name:       Microsoft Clarity
  * Plugin URI:        https://clarity.microsoft.com/
  * Description:       With data and session replay from Clarity, you'll see how people are using your site — where they get stuck and what they love.
- * Version:           0.10.21
+ * Version:           0.10.22
  * Author:            Microsoft
  * Author URI:        https://www.microsoft.com/en-us/
  * License:           MIT
@@ -290,60 +290,69 @@ function get_latest_plugin_version_from_api()
 add_action('admin_init', 'check_if_installed_plugin_version_is_latest');
 function check_if_installed_plugin_version_is_latest()
 {
+	// Skip for ajax requests.
+	if (wp_doing_ajax()) {
+		return;
+	}
+
+	$cached_is_latest_version = get_transient('clarity_is_latest_plugin_version');
+	if ($cached_is_latest_version !== false) {
+		return;
+	}
+
 	$installed_version = get_installed_plugin_version();
 	$latest_version = get_latest_plugin_version_from_api();
 
 	if ($installed_version && $latest_version) {
-		if (version_compare($installed_version, $latest_version, '<')) {
-			update_option('clarity_is_latest_plugin_version', '0');
-		} else {
-			update_option('clarity_is_latest_plugin_version', '1');
-		}
+		$is_latest_version = version_compare($installed_version, $latest_version, '<') ? '0' : '1';
+		set_transient('clarity_is_latest_plugin_version', $is_latest_version, 24 * 60 * 60); // 24 hours cache
 	}
+}
+
+/**
+ * Clear cached plugin-version status after this plugin is updated.
+ * This is needed to avoid showing a banner after update due to stale cache.
+ */
+add_action('upgrader_process_complete', 'clarity_invalidate_latest_version_transient_on_update', 10, 2);
+function clarity_invalidate_latest_version_transient_on_update($upgrader_object, $options)
+{
+	if (
+		! is_array($options) ||
+		($options['type'] ?? '') !== 'plugin' ||
+		($options['action'] ?? '') !== 'update' ||
+		! in_array(plugin_basename(__FILE__), (array) ($options['plugins'] ?? array()), true)
+	) {
+		return;
+	}
+
+	delete_transient('clarity_is_latest_plugin_version');
 }
 
 /**
  * Check if script should be injected on current page
  */
 function should_inject_brand_agents_script() {
-	if ( get_option( 'BAInjectFrontendScript', 'false' ) === 'true' ) {
-		// Inject on WooCommerce pages
-		if ( function_exists( 'is_woocommerce' ) && is_woocommerce() ) {
-			return true;
-		}
-
-		// Inject on shop page
-		if ( function_exists( 'is_shop' ) && is_shop() ) {
-			return true;
-		}
-
-		// Inject on product pages
-		if ( function_exists( 'is_product' ) && is_product() ) {
-			return true;
-		}
-
-		// Inject on cart page
-		if ( function_exists( 'is_cart' ) && is_cart() ) {
-			return true;
-		}
-
-		// Inject on checkout page
-		if ( function_exists( 'is_checkout' ) && is_checkout() ) {
-			return true;
-		}
-
-		// Inject on account pages
-		if ( function_exists( 'is_account_page' ) && is_account_page() ) {
-			return true;
-		}
-
-		// Inject on homepage if it's the shop
-		if ( is_front_page() && get_option( 'show_on_front' ) === 'page' && function_exists( 'wc_get_page_id' ) && get_option( 'page_on_front' ) == wc_get_page_id( 'shop' ) ) {
-			return true;
-		}
-	}
-
-    return false;
+    if ( get_option( 'BAInjectFrontendScript', 'false' ) !== 'true' ) {
+        return false;
+    }
+ 
+    // Don't inject on admin pages
+    if ( is_admin() ) {
+        return false;
+    }
+ 
+    // Don't inject on login/register pages
+    if ( function_exists( 'is_login' ) && is_login() ) {
+        return false;
+    }
+ 
+    // Don't inject on wp-login.php
+    if ( $GLOBALS['pagenow'] === 'wp-login.php' ) {
+        return false;
+    }
+ 
+    // Inject on all other pages
+    return true;
 }
 
 /**

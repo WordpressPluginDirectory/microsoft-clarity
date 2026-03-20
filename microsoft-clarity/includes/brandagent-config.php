@@ -25,6 +25,20 @@ if ( ! defined( 'BRANDAGENT_HMAC_TIMESTAMP_WINDOW' ) ) {
 }
 
 /**
+ * Cookie name used to store BrandAgent cart attributes in the browser.
+ */
+if ( ! defined( 'BRANDAGENT_ATTRS_COOKIE_NAME' ) ) {
+    define( 'BRANDAGENT_ATTRS_COOKIE_NAME', 'brandagent_attrs' );
+}
+
+/**
+ * Lifetime of the BrandAgent attributes cookie in seconds (2 hours).
+ */
+if ( ! defined( 'BRANDAGENT_ATTRS_COOKIE_TTL' ) ) {
+    define( 'BRANDAGENT_ATTRS_COOKIE_TTL', 2 * HOUR_IN_SECONDS );
+}
+
+/**
  * Logging helper — writes to wp-content/debug.log and Query Monitor.
  * Only logs when WP_DEBUG is enabled to avoid information disclosure in production.
  *
