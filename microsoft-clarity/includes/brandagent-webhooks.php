@@ -32,6 +32,10 @@ function brandagent_add_hmac_to_webhook( $http_args, $arg, $webhook_id ) {
 
 	$secret_key = brandagent_get_hmac_secret();
 	if ( ! $secret_key ) {
+		brandagent_log( 'BrandAgent Webhooks: Missing HMAC secret for WooCommerce webhook delivery headers', array(
+			'webhook_id' => $webhook_id,
+			'webhook_name' => $webhook->get_name(),
+		) );
 		return $http_args;
 	}
 
@@ -60,11 +64,19 @@ class BrandAgent_Webhooks {
 	public static function create_webhooks() {
 		$results = array();
 		$webhook_configs = self::get_webhook_configs();
+		brandagent_log( 'BrandAgent Webhooks: Creating or updating configured webhooks', array( 'config_count' => count( $webhook_configs ) ) );
 
 		foreach ( $webhook_configs as $config_file => $config ) {
 			$success = self::create_or_update_webhook( $config );
 			$results[ $config['name'] ] = $success;
 		}
+
+		$success_count = count( array_filter( $results ) );
+		brandagent_log( 'BrandAgent Webhooks: Create/update completed', array(
+			'webhook_count' => count( $results ),
+			'success_count' => $success_count,
+			'failure_count' => count( $results ) - $success_count,
+		) );
 
 		return $results;
 	}
@@ -78,9 +90,9 @@ class BrandAgent_Webhooks {
 		$configs = array();
 		$webhooks_dir = plugin_dir_path( __FILE__ ) . 'webhooks/';
 
-		// Check if webhooks directory exists
+	    // Check if webhooks directory exists
 		if ( ! is_dir( $webhooks_dir ) ) {
-			error_log( 'BrandAgent: Webhooks directory not found: ' . $webhooks_dir );
+			brandagent_log( 'BrandAgent Webhooks: Webhooks directory not found', array( 'webhooks_dir' => $webhooks_dir ) );
 			return $configs;
 		}
 
@@ -94,7 +106,7 @@ class BrandAgent_Webhooks {
 			if ( is_array( $config ) && isset( $config['name'], $config['topic'], $config['endpoint'] ) ) {
 				$configs[ basename( $file ) ] = $config;
 			} else {
-				error_log( 'BrandAgent: Invalid webhook config in file: ' . basename( $file ) );
+				brandagent_log( 'BrandAgent Webhooks: Invalid webhook config in file', array( 'file' => basename( $file ) ) );
 			}
 		}
 
@@ -110,7 +122,10 @@ class BrandAgent_Webhooks {
 	private static function create_or_update_webhook( $config ) {
 		// Check if WooCommerce is loaded
 		if ( ! class_exists( 'WC_Webhook' ) ) {
-			error_log( 'BrandAgent: WooCommerce webhook class not available. Cannot create webhook.' );
+			brandagent_log( 'BrandAgent Webhooks: WooCommerce webhook class not available; cannot create webhook', array(
+				'webhook_name' => $config['name'] ?? '',
+				'topic' => $config['topic'] ?? '',
+			) );
 			return false;
 		}
 
@@ -121,6 +136,12 @@ class BrandAgent_Webhooks {
 
 		// Get HMAC secret for webhook signature validation
 		$hmac_secret = brandagent_get_hmac_secret();
+		if ( ! $hmac_secret ) {
+			brandagent_log( 'BrandAgent Webhooks: HMAC secret missing while creating or updating webhook', array(
+				'webhook_name' => $config['name'],
+				'topic' => $config['topic'],
+			) );
+		}
 
 		// Find existing webhook by name and topic
 		$existing_webhook = self::find_webhook_by_name_and_topic( $config['name'], $config['topic'] );
@@ -176,7 +197,11 @@ class BrandAgent_Webhooks {
 		// Check if this webhook matches by metadata - if so, delete it (it's broken)
 		if ( $post_title === $webhook_name && $meta_topic === $webhook_topic ) {
 			wp_delete_post( $webhook_id, true );
-			error_log( 'BrandAgent: Deleted broken webhook (ID: ' . $webhook_id . '), will create fresh one' );
+			brandagent_log( 'BrandAgent Webhooks: Deleted broken webhook; will create fresh one', array(
+				'webhook_id' => $webhook_id,
+				'webhook_name' => $webhook_name,
+				'topic' => $webhook_topic,
+			) );
 		}
 	}
 
@@ -205,12 +230,15 @@ class BrandAgent_Webhooks {
 		} else {
 			// Current user is not an admin or not logged in - find an admin user
 			$admin_users = get_users( array( 'role' => 'administrator', 'number' => 1 ) );
-			if ( ! empty( $admin_users ) ) {
-				$webhook->set_user_id( $admin_users[0]->ID );
-			} else {
-				error_log( 'BrandAgent: Warning - No admin user found for webhook authentication' );
+				if ( ! empty( $admin_users ) ) {
+					$webhook->set_user_id( $admin_users[0]->ID );
+				} else {
+					brandagent_log( 'BrandAgent Webhooks: Warning - no admin user found for webhook authentication', array(
+						'webhook_name' => $webhook_name,
+						'topic' => $webhook_topic,
+					) );
+				}
 			}
-		}
 
 		$webhook_id = $webhook->save();
 
@@ -221,10 +249,17 @@ class BrandAgent_Webhooks {
 			update_post_meta( $webhook_id, '_webhook_secret', $hmac_secret );
 			update_post_meta( $webhook_id, '_webhook_status', 'active' );
 
-			error_log( 'BrandAgent: Successfully created webhook "' . $webhook_name . '" (ID: ' . $webhook_id . ')' );
+			brandagent_log( 'BrandAgent Webhooks: Successfully created webhook', array(
+				'webhook_id' => $webhook_id,
+				'webhook_name' => $webhook_name,
+				'topic' => $webhook_topic,
+			) );
 			return true;
 		} else {
-			error_log( 'BrandAgent: Failed to create webhook "' . $webhook_name . '"' );
+			brandagent_log( 'BrandAgent Webhooks: Failed to create webhook', array(
+				'webhook_name' => $webhook_name,
+				'topic' => $webhook_topic,
+			) );
 			return false;
 		}
 	}
@@ -280,12 +315,33 @@ class BrandAgent_Webhooks {
 			update_post_meta( $webhook->get_id(), '_webhook_secret', $hmac_secret );
 			update_post_meta( $webhook->get_id(), '_webhook_status', 'active' );
 
-			error_log( 'BrandAgent: Updated existing webhook (ID: ' . $webhook->get_id() . ')' );
+			brandagent_log( 'BrandAgent Webhooks: Updated existing webhook', array(
+				'webhook_id' => $webhook->get_id(),
+				'topic' => $webhook_topic,
+			) );
 		} else {
-			error_log( 'BrandAgent: Webhook already exists and is up-to-date (ID: ' . $webhook->get_id() . ')' );
+			brandagent_log( 'BrandAgent Webhooks: Webhook already exists and is up-to-date', array(
+				'webhook_id' => $webhook->get_id(),
+				'topic' => $webhook_topic,
+			) );
 		}
 
 		return true;
+	}
+
+	/**
+	 * Whether any BrandAgent webhook currently exists on this site.
+	 * Used by the one-time migration that backfills BAWebhooksCreated.
+	 *
+	 * @return bool
+	 */
+	public static function has_any_brandagent_webhook() {
+		if ( ! class_exists( 'WC_Webhook' ) ) {
+			return false;
+		}
+
+		$webhook_ids = self::find_all_webhooks();
+		return ! empty( $webhook_ids );
 	}
 
 	/**
@@ -306,11 +362,11 @@ class BrandAgent_Webhooks {
 			) );
 			
 			if ( ! empty( $webhook_ids ) ) {
-				error_log( 'BrandAgent: Found ' . count( $webhook_ids ) . ' webhooks via data store' );
+				brandagent_log( 'BrandAgent Webhooks: Found webhooks via data store', array( 'webhook_count' => count( $webhook_ids ) ) );
 				return $webhook_ids;
 			}
 		} catch ( Exception $e ) {
-			error_log( 'BrandAgent: Data store search failed: ' . $e->getMessage() );
+			brandagent_log( 'BrandAgent Webhooks: Data store search failed', array( 'error' => $e->getMessage() ) );
 		}
 
 		// Method 2: Direct query to wc_webhooks table (WooCommerce 3.3+)
@@ -324,7 +380,7 @@ class BrandAgent_Webhooks {
 			$webhook_ids = $wpdb->get_col( $wpdb->prepare( "SELECT webhook_id FROM %i", $table_name ) );
 			
 			if ( ! empty( $webhook_ids ) ) {
-				error_log( 'BrandAgent: Found ' . count( $webhook_ids ) . ' webhooks via wc_webhooks table' );
+				brandagent_log( 'BrandAgent Webhooks: Found webhooks via wc_webhooks table', array( 'webhook_count' => count( $webhook_ids ) ) );
 				return $webhook_ids;
 			}
 		}
@@ -337,7 +393,7 @@ class BrandAgent_Webhooks {
 		);
 		
 		if ( ! empty( $webhook_ids ) ) {
-			error_log( 'BrandAgent: Found ' . count( $webhook_ids ) . ' webhooks via posts table (legacy)' );
+			brandagent_log( 'BrandAgent Webhooks: Found webhooks via posts table legacy fallback', array( 'webhook_count' => count( $webhook_ids ) ) );
 		}
 
 		return $webhook_ids;
@@ -352,12 +408,12 @@ class BrandAgent_Webhooks {
 	 */
 	public static function pause_all_brandagent_webhooks() {
 		if ( ! class_exists( 'WC_Webhook' ) ) {
-			error_log( 'BrandAgent: WC_Webhook class not available for pausing' );
+			brandagent_log( 'BrandAgent Webhooks: WC_Webhook class not available for pausing' );
 			return 0;
 		}
 
 		$webhook_ids = self::find_all_webhooks();
-		error_log( 'BrandAgent: Attempting to pause webhooks, found ' . count( $webhook_ids ) . ' total webhooks' );
+		brandagent_log( 'BrandAgent Webhooks: Attempting to pause webhooks', array( 'webhook_count' => count( $webhook_ids ) ) );
 		
 		$paused_count = 0;
 
@@ -365,7 +421,7 @@ class BrandAgent_Webhooks {
 			$webhook = wc_get_webhook( $webhook_id );
 
 			if ( ! $webhook ) {
-				error_log( 'BrandAgent: Could not load webhook ID ' . $webhook_id );
+				brandagent_log( 'BrandAgent Webhooks: Could not load webhook while pausing', array( 'webhook_id' => $webhook_id ) );
 				continue;
 			}
 
@@ -373,18 +429,25 @@ class BrandAgent_Webhooks {
 			
 			// Only pause webhooks that belong to BrandAgent
 			if ( strpos( $webhook_name, 'BrandAgent' ) === 0 ) {
-				if ( $webhook->get_status() === 'active' ) {
-					$webhook->set_status( 'paused' );
-					$webhook->save();
-					error_log( 'BrandAgent: Paused webhook "' . $webhook_name . '" (ID: ' . $webhook_id . ')' );
-					$paused_count++;
-				} else {
-					error_log( 'BrandAgent: Webhook "' . $webhook_name . '" already has status: ' . $webhook->get_status() );
+					if ( $webhook->get_status() === 'active' ) {
+						$webhook->set_status( 'paused' );
+						$webhook->save();
+						brandagent_log( 'BrandAgent Webhooks: Paused webhook', array(
+							'webhook_id' => $webhook_id,
+							'webhook_name' => $webhook_name,
+						) );
+						$paused_count++;
+					} else {
+						brandagent_log( 'BrandAgent Webhooks: Webhook already has non-active status during pause', array(
+							'webhook_id' => $webhook_id,
+							'webhook_name' => $webhook_name,
+							'status' => $webhook->get_status(),
+						) );
+					}
 				}
 			}
-		}
 
-		error_log( 'BrandAgent: Paused ' . $paused_count . ' webhook(s) total' );
+		brandagent_log( 'BrandAgent Webhooks: Pause completed', array( 'paused_count' => $paused_count ) );
 		return $paused_count;
 	}
 
@@ -397,16 +460,19 @@ class BrandAgent_Webhooks {
 	 */
 	public static function resume_all_brandagent_webhooks() {
 		if ( ! function_exists( 'wc_get_webhook' ) ) {
+			brandagent_log( 'BrandAgent Webhooks: wc_get_webhook function not available for resume' );
 			return 0;
 		}
 
 		$webhook_ids = self::find_all_webhooks();
 		$resumed_count = 0;
+		brandagent_log( 'BrandAgent Webhooks: Attempting to resume webhooks', array( 'webhook_count' => count( $webhook_ids ) ) );
 
 		foreach ( $webhook_ids as $webhook_id ) {
 			$webhook = wc_get_webhook( $webhook_id );
 
 			if ( ! $webhook ) {
+				brandagent_log( 'BrandAgent Webhooks: Could not load webhook while resuming', array( 'webhook_id' => $webhook_id ) );
 				continue;
 			}
 
@@ -418,9 +484,7 @@ class BrandAgent_Webhooks {
 			}
 		}
 
-		if ( $resumed_count > 0 ) {
-			error_log( 'BrandAgent: Resumed ' . $resumed_count . ' webhook(s)' );
-		}
+		brandagent_log( 'BrandAgent Webhooks: Resume completed', array( 'resumed_count' => $resumed_count ) );
 
 		return $resumed_count;
 	}
@@ -434,12 +498,12 @@ class BrandAgent_Webhooks {
 	 */
 	public static function delete_all_brandagent_webhooks() {
 		if ( ! class_exists( 'WC_Webhook' ) ) {
-			error_log( 'BrandAgent: WC_Webhook class not available for deletion' );
+			brandagent_log( 'BrandAgent Webhooks: WC_Webhook class not available for deletion' );
 			return 0;
 		}
 
 		$webhook_ids = self::find_all_webhooks();
-		error_log( 'BrandAgent: Attempting to delete webhooks, found ' . count( $webhook_ids ) . ' total webhooks' );
+		brandagent_log( 'BrandAgent Webhooks: Attempting to delete webhooks', array( 'webhook_count' => count( $webhook_ids ) ) );
 		
 		$deleted_count = 0;
 
@@ -448,26 +512,32 @@ class BrandAgent_Webhooks {
 
 			if ( ! $webhook ) {
 				// Try to delete broken webhook directly from database
-				$webhook_name = self::get_webhook_name_from_db( $webhook_id );
-				if ( $webhook_name && strpos( $webhook_name, 'BrandAgent' ) === 0 ) {
-					self::delete_webhook_from_db( $webhook_id );
-					error_log( 'BrandAgent: Deleted broken webhook "' . $webhook_name . '" (ID: ' . $webhook_id . ') directly from DB' );
-					$deleted_count++;
-				}
-				continue;
+					$webhook_name = self::get_webhook_name_from_db( $webhook_id );
+					if ( $webhook_name && strpos( $webhook_name, 'BrandAgent' ) === 0 ) {
+						self::delete_webhook_from_db( $webhook_id );
+						brandagent_log( 'BrandAgent Webhooks: Deleted broken webhook directly from DB', array(
+							'webhook_id' => $webhook_id,
+							'webhook_name' => $webhook_name,
+						) );
+						$deleted_count++;
+					}
+					continue;
 			}
 
 			$webhook_name = $webhook->get_name();
 			
 			// Only delete webhooks that belong to BrandAgent
-			if ( strpos( $webhook_name, 'BrandAgent' ) === 0 ) {
-				$webhook->delete( true );
-				error_log( 'BrandAgent: Deleted webhook "' . $webhook_name . '" (ID: ' . $webhook_id . ')' );
-				$deleted_count++;
+				if ( strpos( $webhook_name, 'BrandAgent' ) === 0 ) {
+					$webhook->delete( true );
+					brandagent_log( 'BrandAgent Webhooks: Deleted webhook', array(
+						'webhook_id' => $webhook_id,
+						'webhook_name' => $webhook_name,
+					) );
+					$deleted_count++;
+				}
 			}
-		}
 
-		error_log( 'BrandAgent: Deleted ' . $deleted_count . ' webhook(s) total' );
+		brandagent_log( 'BrandAgent Webhooks: Delete completed', array( 'deleted_count' => $deleted_count ) );
 		return $deleted_count;
 	}
 

@@ -1,8 +1,8 @@
 <?php
 
 /*******************************************************************************
- * File with Clarity page
- *******************************************************************************/
+* File with Clarity page
+*******************************************************************************/
 
 // Handle Brand Agent remove from waitlist success callback - use add_action to ensure WordPress is loaded
 add_action( 'init', 'brandagent_handle_remove_from_waitlist_success_callback', 1 );
@@ -66,6 +66,10 @@ function brandagent_handle_remove_from_waitlist_success_callback() {
 
         delete_option( 'BAOauthSuccess' );
         delete_option( 'BAInjectFrontendScript' );
+        delete_option( 'BAOauthRepairDone' );
+        delete_option( 'BAWebhooksCreated' );
+        delete_option( 'BAWebhooksBackfillDone' );
+        delete_option( 'clarity_ba_eligible_triggered' );
         brandagent_delete_hmac_secret();
 
         // Try to delete webhooks immediately if WooCommerce is available
@@ -101,6 +105,10 @@ function brandagent_handle_oauth_callback() {
     // WooCommerce adds success=1 to the return URL when the callback was successful
     $wc_success = isset($_GET['success']) && $_GET['success'] == '1';
     $success = false;
+    brandagent_log( 'BrandAgent OAuth: Callback received', array(
+        'wc_success' => $wc_success,
+        'oauth_present' => ! empty( $oauth_token ),
+    ) );
 
     if ($wc_success && !empty($oauth_token)) {
         // Pull the HMAC secret from Clarity server (server-to-server, secret in response body)
@@ -135,19 +143,26 @@ function brandagent_handle_oauth_callback() {
                 if ( json_last_error() !== JSON_ERROR_NONE ) {
                     brandagent_log( 'BrandAgent OAuth: ERROR - JSON parse failed: ' . json_last_error_msg() );
                 } elseif ( isset( $body['success'] ) && $body['success'] === true && ! empty( $body['hmac_secret'] ) ) {
-                    brandagent_store_hmac_secret( $body['hmac_secret'] );
+                    $hmac_secret_stored = brandagent_store_hmac_secret( $body['hmac_secret'] );
                     update_option( 'BAOauthSuccess', true );
                     $success = true;
-                    brandagent_log( 'BrandAgent OAuth: SUCCESS - HMAC secret stored, BAOauthSuccess set.' );
+                    brandagent_log( 'BrandAgent OAuth: SUCCESS - HMAC secret handled, BAOauthSuccess set.', array( 'hmac_stored' => $hmac_secret_stored ) );
                 } else {
-                    brandagent_log( 'BrandAgent OAuth: ERROR - Unexpected response from fetch-secret' );
+                    brandagent_log( 'BrandAgent OAuth: ERROR - Unexpected response from fetch-secret', array(
+                        'status_code' => $status_code,
+                        'success_present' => isset( $body['success'] ),
+                        'hmac_present' => isset( $body['hmac_secret'] ) && ! empty( $body['hmac_secret'] ),
+                    ) );
                 }
             } else {
-                brandagent_log( 'BrandAgent OAuth: ERROR - fetch-secret returned status ' . $status_code );
+                brandagent_log( 'BrandAgent OAuth: ERROR - fetch-secret returned non-success status', array( 'status_code' => $status_code ) );
             }
         }
     } else {
-        brandagent_log( 'BrandAgent OAuth: SKIPPED - wc_success=' . ($wc_success ? 'true' : 'false') . ', oauth_token=' . (!empty($oauth_token) ? 'present' : 'MISSING') );
+        brandagent_log( 'BrandAgent OAuth: SKIPPED - WooCommerce success or OAuth token missing', array(
+            'wc_success' => $wc_success,
+            'oauth_present' => ! empty( $oauth_token ),
+        ) );
     }
 
     ?>
@@ -186,6 +201,7 @@ function brandagent_handle_refresh_credentials_callback() {
 
     $oauth_token = isset( $_GET['oauth_token'] ) ? sanitize_text_field( $_GET['oauth_token'] ) : '';
     $success = false;
+    brandagent_log( 'BrandAgent Refresh: Callback received', array( 'oauth_present' => ! empty( $oauth_token ) ) );
 
     if ( ! empty( $oauth_token ) ) {
         // Ensure BrandAgent_Config is loaded
@@ -221,14 +237,18 @@ function brandagent_handle_refresh_credentials_callback() {
                 if ( json_last_error() !== JSON_ERROR_NONE ) {
                     brandagent_log( 'BrandAgent Refresh: ERROR - JSON parse failed: ' . json_last_error_msg() );
                 } elseif ( isset( $body['success'] ) && $body['success'] === true && ! empty( $body['hmac_secret'] ) ) {
-                    brandagent_store_hmac_secret( $body['hmac_secret'] );
+                    $hmac_secret_stored = brandagent_store_hmac_secret( $body['hmac_secret'] );
                     $success = true;
-                    brandagent_log( 'BrandAgent Refresh: SUCCESS - New HMAC secret stored.' );
+                    brandagent_log( 'BrandAgent Refresh: SUCCESS - New HMAC secret handled.', array( 'hmac_stored' => $hmac_secret_stored ) );
                 } else {
-                    brandagent_log( 'BrandAgent Refresh: ERROR - Unexpected response from fetch-secret' );
+                    brandagent_log( 'BrandAgent Refresh: ERROR - Unexpected response from fetch-secret', array(
+                        'status_code' => $status_code,
+                        'success_present' => isset( $body['success'] ),
+                        'hmac_present' => isset( $body['hmac_secret'] ) && ! empty( $body['hmac_secret'] ),
+                    ) );
                 }
             } else {
-                brandagent_log( 'BrandAgent Refresh: ERROR - fetch-secret returned status ' . $status_code );
+                brandagent_log( 'BrandAgent Refresh: ERROR - fetch-secret returned non-success status', array( 'status_code' => $status_code ) );
             }
         }
     } else {
@@ -254,25 +274,25 @@ function generate_wordpress_id_option_if_empty()
 }
 
 /**
- * generate a guid identifier for this wordpress site
- * runs in the callback of register_activation_hook, rerunning here for existing plugin which updated 
- **/
+* generate a guid identifier for this wordpress site
+* runs in the callback of register_activation_hook, rerunning here for existing plugin which updated 
+**/
 function refresh_wordpress_id_option()
 {
     update_option('clarity_wordpress_site_id', wp_generate_uuid4());
 }
 
 /**
- * Detects whether this site is hosted on WordPress.com.
- **/
+* Detects whether this site is hosted on WordPress.com.
+**/
 function clarity_is_wordpress_com_hosted()
 {
     return defined('IS_WPCOM') && IS_WPCOM;
 }
 
 /**
- * Displays the embedded iframe in Clarity settings
- **/
+* Displays the embedded iframe in Clarity settings
+**/
 function clarity_section_iframe_callback()
 {
     $nonce = wp_create_nonce('wp_ajax_edit_clarity_project_id');
@@ -301,6 +321,11 @@ function clarity_section_iframe_callback()
     // set a QP if user is WooCommerce plugin is active
     if (class_exists('woocommerce')) {
         $query_params = $query_params . "&WooCommerce=1";
+
+        // Trigger RAI eligibility check on BA server (fire-and-forget, once per install)
+        if ( get_option( 'clarity_ba_eligible_triggered', '' ) === '' ) {
+            clarity_trigger_ba_eligibility( $site_url );
+        }
     }
 
     // set a QP if permalink structure is plain (required for Brand Agent rewrite rules)
@@ -334,16 +359,16 @@ function clarity_section_iframe_callback()
 }
 
 /**
- * clarity project id default value is empty string
- **/
+* clarity project id default value is empty string
+**/
 function clarity_project_id_default_value()
 {
     return '';
 }
 
 /**
- * Generates a menu page
- **/
+* Generates a menu page
+**/
 
 add_action('admin_menu', 'clarity_page_generation');
 function clarity_page_generation()
@@ -360,12 +385,9 @@ function clarity_page_generation()
 }
 
 /**
- * Register Plugin settings
- * clarity_project_id: option for currently integrated Clarity project id
- * clarity_wordpress_site_id: a guid generated by the Clarity plugin to uniquely identify this wordpress site
- * clarity_section_iframe_callback: part of the settings page in which the iframe is embedded
- * BAOauthSuccess: option for checking if brand agent oauth was successful
- **/
+* Register Plugin settings
+* clarity_project_id: option for currently integrated Clarity project id
+**/
 add_action('admin_init', 'clarity_register_settings');
 function clarity_register_settings()
 {
@@ -374,22 +396,12 @@ function clarity_register_settings()
         'clarity_project_id' /* option_name */
         /* args */
     );
-    register_setting(
-        'general', /* $option_group */
-        'clarity_wordpress_site_id' /* option_name */
-        /* args */
-    );
-    register_setting(
-        'general', /* $option_group */
-        'BAOauthSuccess' /* option_name */
-        /* args */
-    );
 }
 
 /** 
- * Notice for when wordpress admins did not finish intalling Clarity
- * did not integrate a project
- */
+* Notice for when wordpress admins did not finish intalling Clarity
+* did not integrate a project
+*/
 add_action('admin_notices', 'setup_clarity_notice__info');
 function setup_clarity_notice__info()
 {
@@ -432,10 +444,10 @@ function setup_clarity_notice__info()
 }
 
 /**
- * Add js function to listen to message on all admin pages
- * These message contain changes to integrated Clarity project
- * remove - change - add new
- */
+* Add js function to listen to message on all admin pages
+* These message contain changes to integrated Clarity project
+* remove - change - add new
+*/
 add_action('admin_enqueue_scripts', 'add_event_listeners');
 function add_event_listeners($hook)
 {
@@ -471,9 +483,9 @@ function add_event_listeners($hook)
 }
 
 /**
- * Add callback triggered when a new message is received
- * Edits the clarity project id option respectively
- */
+* Add callback triggered when a new message is received
+* Edits the clarity project id option respectively
+*/
 add_action('wp_ajax_edit_clarity_project_id', "edit_clarity_project_id");
 function edit_clarity_project_id()
 {
@@ -511,9 +523,9 @@ function edit_clarity_project_id()
 }
 
 /**
- * Add callback triggered when a new message is received
- * Edits the agent enabled status option respectively
- */
+* Add callback triggered when a new message is received
+* Edits the agent enabled status option respectively
+*/
 add_action('wp_ajax_edit_agent_enabled_status', "edit_agent_enabled_status");
 function edit_agent_enabled_status()
 {
@@ -551,8 +563,8 @@ function edit_agent_enabled_status()
 }
 
 /**
- * Displays an admin notice if the plugin version installed is not the latest
- */
+* Displays an admin notice if the plugin version installed is not the latest
+*/
 add_action('admin_notices', 'plugin_update_notice');
 function plugin_update_notice()
 {
@@ -593,9 +605,9 @@ function plugin_update_notice()
 }
 
 /**
- * Updates the plugin to the latest version programmatically
- * The upgrade function deactives the plugin by default before the upgrade, hence the need to reactivate it
- */
+* Updates the plugin to the latest version programmatically
+* The upgrade function deactives the plugin by default before the upgrade, hence the need to reactivate it
+*/
 add_action('admin_action_trigger_plugin_update', 'plugin_perform_update');
 function plugin_perform_update()
 {
@@ -638,8 +650,8 @@ function plugin_perform_update()
 }
 
 /**
- * Display an admin notice with the status of the plugin update
- */
+* Display an admin notice with the status of the plugin update
+*/
 add_action('admin_notices', 'plugin_admin_notices');
 function plugin_admin_notices()
 {
@@ -654,4 +666,44 @@ function plugin_admin_notices()
             <p><strong>Microsoft Clarity plugin update failed.</strong></p>
         </div>';
     }
+}
+
+/**
+* Trigger the Brand Agent eligibility (RAI) check via Clarity server proxy.
+* Fire-and-forget — the plugin doesn't need the result. The BA server caches it
+* for the Clarity Dashboard to read later. Uses a non-blocking request so the
+* admin page isn't delayed.
+*/
+function clarity_trigger_ba_eligibility( $store_url ) {
+    if ( ! class_exists( 'BrandAgent_Config' ) ) {
+        $config_path = plugin_dir_path( __FILE__ ) . 'includes/brandagent-config.php';
+        if ( file_exists( $config_path ) ) {
+            require_once $config_path;
+        } else {
+            brandagent_log( 'BrandAgent Eligibility: ERROR - Config file not found at ' . $config_path );
+            return;
+        }
+    }
+
+    $clarity_server_url = BrandAgent_Config::get_clarity_server_url();
+    $endpoint = $clarity_server_url . '/woocommerce/is-eligible';
+
+    brandagent_log( 'BrandAgent Eligibility: triggering check for ' . $store_url . ' via ' . $endpoint );
+
+    // Non-blocking: we don't need the response — just need to trigger the request
+    // so the BA server starts the RAI check.
+    $response = wp_remote_post( $endpoint, array(
+        'timeout'  => 0.01,
+        'blocking' => false,
+        'headers'  => array( 'Content-Type' => 'application/json' ),
+        'body'     => wp_json_encode( array( 'storeUrl' => $store_url ) ),
+    ) );
+
+    if ( is_wp_error( $response ) ) {
+        brandagent_log( 'BrandAgent Eligibility: ERROR - failed to trigger check', array( 'error' => $response->get_error_message() ) );
+    }
+
+    // Mark as triggered so we don't re-fire on every admin page load
+    update_option( 'clarity_ba_eligible_triggered', '1' );
+    brandagent_log( 'BrandAgent Eligibility: marked eligibility trigger as completed', array( 'store_url' => $store_url ) );
 }

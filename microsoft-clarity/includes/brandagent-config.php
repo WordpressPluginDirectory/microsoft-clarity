@@ -43,15 +43,94 @@ if ( ! defined( 'BRANDAGENT_ATTRS_COOKIE_TTL' ) ) {
  * Only logs when WP_DEBUG is enabled to avoid information disclosure in production.
  *
  * @param string $message The message to log.
+ * @param array  $context Optional structured context to append.
  */
-function brandagent_log( $message ) {
+function brandagent_log( $message, $context = array() ) {
     if ( ! defined( 'WP_DEBUG' ) || ! WP_DEBUG ) {
         return;
+    }
+
+    if ( ! empty( $context ) && is_array( $context ) ) {
+        $sanitized_context = brandagent_sanitize_log_context( $context );
+        $encoded_context = function_exists( 'wp_json_encode' )
+            ? wp_json_encode( $sanitized_context )
+            : json_encode( $sanitized_context );
+
+        if ( $encoded_context ) {
+            $message .= ' ' . $encoded_context;
+        }
     }
 
     $path = WP_CONTENT_DIR . '/debug.log';
     $line = '[' . date( 'c' ) . '] ' . $message . PHP_EOL;
     @file_put_contents( $path, $line, FILE_APPEND );
+}
+
+/**
+ * Sanitize structured Brand Agent log context before writing to disk.
+ *
+ * @param array $context Context values.
+ * @return array Sanitized context.
+ */
+function brandagent_sanitize_log_context( $context ) {
+    $sanitized = array();
+
+    foreach ( $context as $key => $value ) {
+        $sanitized[ $key ] = brandagent_sanitize_log_value( $key, $value );
+    }
+
+    return $sanitized;
+}
+
+/**
+ * Sanitize a single Brand Agent log value.
+ *
+ * @param string $key   Context key.
+ * @param mixed  $value Context value.
+ * @return mixed Sanitized value.
+ */
+function brandagent_sanitize_log_value( $key, $value ) {
+    $sensitive_key_fragments = array(
+        'authorization',
+        'billing',
+        'body',
+        'clientinformation',
+        'cookie',
+        'customer',
+        'email',
+        'payload',
+        'phone',
+        'secret',
+        'shipping',
+        'signature',
+        'token',
+    );
+
+    $key_lower = strtolower( (string) $key );
+    foreach ( $sensitive_key_fragments as $fragment ) {
+        if ( strpos( $key_lower, $fragment ) !== false ) {
+            return '[redacted]';
+        }
+    }
+
+    if ( is_array( $value ) ) {
+        return brandagent_sanitize_log_context( $value );
+    }
+
+    if ( is_object( $value ) ) {
+        return '[object ' . get_class( $value ) . ']';
+    }
+
+    if ( is_bool( $value ) || is_int( $value ) || is_float( $value ) || $value === null ) {
+        return $value;
+    }
+
+    $string_value = (string) $value;
+    if ( strlen( $string_value ) > 200 ) {
+        return substr( $string_value, 0, 200 ) . '...';
+    }
+
+    return $string_value;
 }
 
 /**
@@ -299,6 +378,7 @@ function brandagent_store_hmac_secret( $hmac_secret ) {
     // Encrypt before storing
     $encrypted = brandagent_encrypt( $hmac_secret_clean );
     if ( $encrypted === false ) {
+        brandagent_log( 'BrandAgent: ERROR - HMAC secret encryption failed before storage', array( 'store_url' => $store_url ) );
         return false;
     }
 
@@ -345,6 +425,8 @@ function brandagent_delete_hmac_secret() {
     $result = delete_option( $option_key );
     if ( $result ) {
         brandagent_log( 'BrandAgent: HMAC secret deleted successfully for ' . $store_url );
+    } else {
+        brandagent_log( 'BrandAgent: HMAC secret delete skipped or failed', array( 'store_url' => $store_url ) );
     }
     return $result;
 }

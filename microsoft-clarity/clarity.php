@@ -4,7 +4,7 @@
  * Plugin Name:       Microsoft Clarity
  * Plugin URI:        https://clarity.microsoft.com/
  * Description:       With data and session replay from Clarity, you'll see how people are using your site — where they get stuck and what they love.
- * Version:           0.10.22
+ * Version:           0.10.24
  * Author:            Microsoft
  * Author URI:        https://www.microsoft.com/en-us/
  * License:           MIT
@@ -123,11 +123,15 @@ function clrt_update_clarity_options_handler($action, $network_wide)
 			// Initialize BAInjectFrontendScript with default value
 			if ( get_option( 'BAInjectFrontendScript' ) === false ) {
 				add_option( 'BAInjectFrontendScript', 'false' );
+				brandagent_log( 'BrandAgent Lifecycle: Initialized BAInjectFrontendScript option', array( 'value' => 'false' ) );
 			}
 
 			// Resume all BrandAgent webhooks
 			if ( class_exists( 'BrandAgent_Webhooks' ) ) {
-				BrandAgent_Webhooks::resume_all_brandagent_webhooks();
+				$resumed_count = BrandAgent_Webhooks::resume_all_brandagent_webhooks();
+				brandagent_log( 'BrandAgent Lifecycle: Plugin activated; resumed webhooks', array( 'resumed_count' => $resumed_count ) );
+			} else {
+				brandagent_log( 'BrandAgent Lifecycle: Plugin activated; BrandAgent_Webhooks class not available for resume' );
 			}
 
 			break;
@@ -146,17 +150,25 @@ function clrt_update_clarity_options_handler($action, $network_wide)
 
 			// Pause all BrandAgent webhooks
 			if ( class_exists( 'BrandAgent_Webhooks' ) ) {
-				BrandAgent_Webhooks::pause_all_brandagent_webhooks();
+				$paused_count = BrandAgent_Webhooks::pause_all_brandagent_webhooks();
+				brandagent_log( 'BrandAgent Lifecycle: Plugin deactivated; paused webhooks', array( 'paused_count' => $paused_count ) );
+			} else {
+				brandagent_log( 'BrandAgent Lifecycle: Plugin deactivated; BrandAgent_Webhooks class not available for pause' );
 			}
 
 			break;
 		case 'uninstall':
+			brandagent_log( 'BrandAgent Lifecycle: Plugin uninstall started' );
 			handle_brandagent_uninstall();
 
 			delete_option('clarity_wordpress_site_id');
 			delete_option('clarity_project_id');
 			delete_option( 'BAOauthSuccess' );
             delete_option( 'BAInjectFrontendScript' );
+			delete_option( 'BAOauthRepairDone' );
+			delete_option( 'BAWebhooksCreated' );
+			delete_option( 'BAWebhooksBackfillDone' );
+			delete_option( 'clarity_ba_eligible_triggered' );
 			// Cleanup for the option used up to version 0.10.16. Should remove this after users migrate to 0.10.17+ where this option is no longer used.
 			delete_option('clarity_collect_batch');
 			clarity_flush_and_clear_collect_recurring();
@@ -164,14 +176,20 @@ function clrt_update_clarity_options_handler($action, $network_wide)
 
 			// Delete all BrandAgent webhooks
 			if ( class_exists( 'BrandAgent_Webhooks' ) ) {
-				BrandAgent_Webhooks::delete_all_brandagent_webhooks();
+				$deleted_count = BrandAgent_Webhooks::delete_all_brandagent_webhooks();
+				brandagent_log( 'BrandAgent Lifecycle: Plugin uninstall deleted webhooks', array( 'deleted_count' => $deleted_count ) );
+			} else {
+				brandagent_log( 'BrandAgent Lifecycle: Plugin uninstall; BrandAgent_Webhooks class not available for deletion' );
 			}
 
 			// Delete stored HMAC secret for this store
 			if ( function_exists( 'brandagent_delete_hmac_secret' ) ) {
 				brandagent_delete_hmac_secret();
+			} else {
+				brandagent_log( 'BrandAgent Lifecycle: Plugin uninstall; HMAC delete helper not available' );
 			}
 
+			brandagent_log( 'BrandAgent Lifecycle: Plugin uninstall completed' );
 			break;
 	}
 }
@@ -282,6 +300,57 @@ function get_latest_plugin_version_from_api()
 	}
 
 	return false;
+}
+
+/**
+ * One-time migration: repair BAOauthSuccess if it was cleared by the
+ * register_setting('general') bug (fixed in 0.10.23) while
+ * BAInjectFrontendScript remained true and the HMAC secret is still present.
+ */
+add_action('admin_init', 'clarity_repair_oauth_status');
+function clarity_repair_oauth_status() {
+	if ( get_option('BAOauthRepairDone') ) {
+		return;
+	}
+
+	if ( get_option('BAInjectFrontendScript') === 'true'
+		 && brandagent_get_hmac_secret()
+		 && get_option('BAOauthSuccess') != 1 ) {
+		update_option('BAOauthSuccess', true);
+		brandagent_log( 'BrandAgent OAuth Repair: Restored BAOauthSuccess from existing Brand Agent state' );
+	}
+
+	update_option('BAOauthRepairDone', true);
+}
+
+/**
+ * One-time migration: backfill BAWebhooksCreated for stores that already have
+ * BrandAgent webhooks set up before this flag existed. Without this, a future
+ * config/update would unnecessarily re-trigger complete-onboarding +
+ * create_webhooks() for healthy stores. Stores that completed OAuth but never
+ * got webhooks (the bug we're fixing) are intentionally left without the flag,
+ * so the next config/update will recover them.
+ */
+add_action('admin_init', 'clarity_backfill_webhooks_created');
+function clarity_backfill_webhooks_created() {
+	if ( get_option('BAWebhooksBackfillDone') ) {
+		return;
+	}
+
+	// Defer if WooCommerce isn't ready yet — without WC_Webhook, has_any_brandagent_webhook()
+	// would return false for healthy stores and we'd mark the backfill done with the flag
+	// unset, causing one unnecessary complete-onboarding round-trip on the next config/update.
+	if ( ! class_exists('BrandAgent_Webhooks') || ! class_exists('WC_Webhook') ) {
+		return;
+	}
+
+	if ( get_option('BAOauthSuccess') == 1
+		 && get_option('BAInjectFrontendScript') === 'true'
+		 && BrandAgent_Webhooks::has_any_brandagent_webhook() ) {
+		update_option('BAWebhooksCreated', true);
+	}
+
+	update_option('BAWebhooksBackfillDone', true);
 }
 
 /**
@@ -419,7 +488,7 @@ function brandagent_process_pending_webhook_deletion() {
     
     // Check if WooCommerce is available
     if ( ! class_exists( 'WooCommerce' ) || ! class_exists( 'WC_Webhook' ) ) {
-        error_log( 'BrandAgent: WooCommerce not available yet for pending webhook deletion' );
+        brandagent_log( 'BrandAgent Webhooks: WooCommerce not available yet for pending webhook deletion' );
         return;
     }
     
@@ -428,9 +497,9 @@ function brandagent_process_pending_webhook_deletion() {
     
     if ( class_exists( 'BrandAgent_Webhooks' ) ) {
         $deleted_count = BrandAgent_Webhooks::delete_all_brandagent_webhooks();
-        error_log( 'BrandAgent: Deleted ' . $deleted_count . ' webhook(s) via pending deletion' );
+        brandagent_log( 'BrandAgent Webhooks: Deleted webhooks via pending deletion', array( 'deleted_count' => $deleted_count ) );
     } else {
-        error_log( 'BrandAgent: BrandAgent_Webhooks class not available for pending deletion' );
+        brandagent_log( 'BrandAgent Webhooks: BrandAgent_Webhooks class not available for pending deletion' );
     }
 }
 
@@ -439,17 +508,25 @@ function brandagent_process_pending_webhook_deletion() {
  * This function can be called during plugin uninstall to notify the backend
  */
 function handle_brandagent_uninstall() {
-	if ( get_option( 'BAOauthSuccess' ) == 1 ) {
-		$site_url = home_url();
-
-		// HMAC-signed request through Clarity proxy
-		$clarity_domain = BrandAgent_Config::get_clarity_server_url();
-		$uninstall_endpoint = $clarity_domain . '/woocommerce/uninstall';
-		$response = brandagent_sign_outbound_request( $uninstall_endpoint, wp_json_encode( array( 'storeUrl' => $site_url ) ), 'POST', 15 );
-
-		// Log error if call fails, but continue with local cleanup
-		if ( is_wp_error( $response ) ) {
-			error_log( 'BrandAgent: Failed to call uninstall endpoint: ' . $response->get_error_message() );
-		}
+	if ( get_option( 'BAOauthSuccess' ) != 1 ) {
+		brandagent_log( 'BrandAgent Uninstall: Skipping backend uninstall because OAuth is not marked successful' );
+		return;
 	}
+
+	$site_url = home_url();
+
+	// HMAC-signed request through Clarity proxy
+	$clarity_domain = BrandAgent_Config::get_clarity_server_url();
+	$uninstall_endpoint = $clarity_domain . '/woocommerce/uninstall';
+	brandagent_log( 'BrandAgent Uninstall: Calling backend uninstall endpoint', array( 'store_url' => $site_url, 'endpoint' => $uninstall_endpoint ) );
+	$response = brandagent_sign_outbound_request( $uninstall_endpoint, wp_json_encode( array( 'storeUrl' => $site_url ) ), 'POST', 15 );
+
+	// Log error if call fails, but continue with local cleanup
+	if ( is_wp_error( $response ) ) {
+		brandagent_log( 'BrandAgent Uninstall: Failed to call backend uninstall endpoint', array( 'error' => $response->get_error_message() ) );
+		return;
+	}
+
+	$status_code = wp_remote_retrieve_response_code( $response );
+	brandagent_log( 'BrandAgent Uninstall: Backend uninstall endpoint returned', array( 'status_code' => $status_code ) );
 }

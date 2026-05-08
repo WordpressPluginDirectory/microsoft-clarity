@@ -56,6 +56,28 @@ class BrandAgent_REST_API {
 	}
 
 	/**
+	 * Summarize Brand Agent cart attributes without logging raw values.
+	 *
+	 * @param array|null $attributes Attributes to summarize.
+	 * @return array Attribute summary.
+	 */
+	private static function summarize_cart_attributes( $attributes ) {
+		$clarity_info = is_array( $attributes ) && isset( $attributes['clarityInformation'] ) && is_array( $attributes['clarityInformation'] )
+			? $attributes['clarityInformation']
+			: array();
+
+		return array(
+			'session_id_present' => ! empty( $attributes['sessionId'] ?? '' ),
+			'client_id_present' => ! empty( $attributes['clientId'] ?? '' ),
+			'conversation_id_present' => ! empty( $attributes['conversationId'] ?? '' ),
+			'clarity_info_key_count' => count( $clarity_info ),
+			'language_present' => ! empty( $attributes['language'] ?? '' ),
+			'currency_present' => ! empty( $attributes['currency'] ?? '' ),
+			'country_present' => ! empty( $attributes['country'] ?? '' ),
+		);
+	}
+
+	/**
 	 * Update cart session attributes
 	 *
 	 * @param WP_REST_Request $request Full data about the request.
@@ -67,6 +89,7 @@ class BrandAgent_REST_API {
 			$body = $request->get_json_params();
 
 			if ( empty( $body ) || ! isset( $body['attributes'] ) ) {
+				brandagent_log( 'BrandAgent REST: Missing attributes in update_cart_attributes request' );
 				return new WP_Error( 'invalid_request', 'Missing attributes in request body', array( 'status' => 400 ) );
 			}
 
@@ -85,6 +108,7 @@ class BrandAgent_REST_API {
 
 			// Validate required fields
 			if ( empty( $attributes['clientId'] ) ) {
+				brandagent_log( 'BrandAgent REST: Missing required clientId in update_cart_attributes request' );
 				return new WP_Error( 'missing_client_id', 'Missing required clientId', array( 'status' => 400 ) );
 			}
 
@@ -101,7 +125,7 @@ class BrandAgent_REST_API {
 			$client_info_json = wp_json_encode( $client_info );
 
 			wc_setcookie( BRANDAGENT_ATTRS_COOKIE_NAME, $client_info_json, time() + BRANDAGENT_ATTRS_COOKIE_TTL );
-			brandagent_log( 'BrandAgent REST: Cart attributes stored. Full attributes = ' . $client_info_json );
+			brandagent_log( 'BrandAgent REST: Cart attributes stored', self::summarize_cart_attributes( $client_info ) );
 
 			return rest_ensure_response( array(
 				'success' => true,
@@ -133,11 +157,11 @@ class BrandAgent_REST_API {
 		$attrs       = json_decode( $cookie_json, true );
 
 		if ( ! is_array( $attrs ) ) {
-			brandagent_log( 'BrandAgent REST: get_cart_attributes - cookie JSON invalid, returning null' );
+			brandagent_log( 'BrandAgent REST: get_cart_attributes - stored attributes JSON invalid, returning null', array( 'stored_value_length' => strlen( $cookie_json ) ) );
 			return null;
 		}
 
-		brandagent_log( 'BrandAgent REST: get_cart_attributes - found attributes = ' . $cookie_json );
+		brandagent_log( 'BrandAgent REST: get_cart_attributes - found attributes', self::summarize_cart_attributes( $attrs ) );
 		return $attrs;
 	}
 }

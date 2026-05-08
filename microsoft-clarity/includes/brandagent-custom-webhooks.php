@@ -266,6 +266,12 @@ function brandagent_deliver_custom_webhook( $webhook, $resource, $topic, $event 
     $payload = apply_filters( 'woocommerce_webhook_payload', array(), $resource, 0, $webhook->get_id() );
 
     if ( empty( $payload ) ) {
+        brandagent_log( 'BrandAgent Custom Webhooks: Skipping delivery because payload is empty', array(
+            'webhook_id' => $webhook->get_id(),
+            'resource' => $resource,
+            'topic' => $topic,
+            'event' => $event,
+        ) );
         return;
     }
 
@@ -287,6 +293,13 @@ function brandagent_deliver_custom_webhook( $webhook, $resource, $topic, $event 
     $hmac_signature = $hmac_secret
         ? brandagent_generate_hmac_signature( $hmac_client_id, $hmac_timestamp, $hmac_secret )
         : '';
+    if ( ! $hmac_secret ) {
+        brandagent_log( 'BrandAgent Custom Webhooks: Missing HMAC secret for custom webhook delivery', array(
+            'webhook_id' => $webhook->get_id(),
+            'resource' => $resource,
+            'topic' => $topic,
+        ) );
+    }
 
     // Build headers
     $headers = array(
@@ -324,7 +337,12 @@ function brandagent_deliver_custom_webhook( $webhook, $resource, $topic, $event 
     // Note: With blocking=false, we can only detect immediate failures (e.g., invalid URL).
     // Network/server errors won't be caught since we don't wait for the response.
     if ( is_wp_error( $response ) ) {
-        error_log( 'BrandAgent: ' . ucfirst( $resource ) . ' webhook delivery failed: ' . $response->get_error_message() );
+        brandagent_log( 'BrandAgent Custom Webhooks: Webhook delivery failed', array(
+            'webhook_id' => $webhook->get_id(),
+            'resource' => $resource,
+            'topic' => $topic,
+            'error' => $response->get_error_message(),
+        ) );
     }
 }
 
@@ -526,6 +544,7 @@ class BrandAgent_Cart_Webhook_Trigger {
     private static function trigger_webhooks() {
         // Don't trigger if cart not initialized
         if ( ! WC()->cart ) {
+            brandagent_log( 'BrandAgent Custom Webhooks: Skipping cart webhook trigger because cart is not initialized' );
             self::$change_context = null;
             return;
         }
