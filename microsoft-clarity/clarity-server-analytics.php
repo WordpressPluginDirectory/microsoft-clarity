@@ -34,8 +34,8 @@ function clarity_collect_event()
         // Construct and buffer the collect event payload for batch sending
         $event = clarity_construct_collect_event($clarity_project_id);
         clarity_insert_collect_event($event);
-    } catch (Exception $e) {
-        // Silently fail on any error
+    } catch (\Throwable $e) {
+        // Silently fail on any error (incl. fatals)
     }
 }
 
@@ -55,7 +55,7 @@ function clarity_construct_collect_event($clarity_project_id)
 {
     $envelope = array(
         'projectId' => $clarity_project_id,
-        'sessionId' => wp_get_session_token(),
+        'sessionId' => clarity_safe_get_session_token(),
         'version'   => get_installed_plugin_version(),
     );
 
@@ -74,6 +74,21 @@ function clarity_construct_collect_event($clarity_project_id)
     );
 
     return $payload;
+}
+
+/**
+ * Safely retrieves the WordPress session token without triggering a fatal
+ * error when pluggable functions (like wp_parse_auth_cookies) are not yet loaded.
+ *
+ * @return string The session token, or an empty string when unavailable.
+ */
+function clarity_safe_get_session_token()
+{
+    try {
+        return (string) wp_get_session_token();
+    } catch (\Throwable $e) {
+        return '';
+    }
 }
 
 /**

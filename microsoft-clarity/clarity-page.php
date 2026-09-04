@@ -70,6 +70,9 @@ function brandagent_handle_remove_from_waitlist_success_callback() {
         delete_option( 'BAWebhooksCreated' );
         delete_option( 'BAWebhooksBackfillDone' );
         delete_option( 'clarity_ba_eligible_triggered' );
+        delete_option( 'brandagent_wp_connect_optin' );
+        delete_option( 'brandagent_wp_connect_attempts' );
+        delete_transient( 'brandagent_wp_connect_throttle' );
         brandagent_delete_hmac_secret();
 
         // Try to delete webhooks immediately if WooCommerce is available
@@ -143,7 +146,7 @@ function brandagent_handle_oauth_callback() {
                 if ( json_last_error() !== JSON_ERROR_NONE ) {
                     brandagent_log( 'BrandAgent OAuth: ERROR - JSON parse failed: ' . json_last_error_msg() );
                 } elseif ( isset( $body['success'] ) && $body['success'] === true && ! empty( $body['hmac_secret'] ) ) {
-                    $hmac_secret_stored = brandagent_store_hmac_secret( $body['hmac_secret'] );
+                    $hmac_secret_stored = brandagent_store_hmac_secret( $body['hmac_secret'], 'woocommerce' );
                     update_option( 'BAOauthSuccess', true );
                     $success = true;
                     brandagent_log( 'BrandAgent OAuth: SUCCESS - HMAC secret handled, BAOauthSuccess set.', array( 'hmac_stored' => $hmac_secret_stored ) );
@@ -237,7 +240,7 @@ function brandagent_handle_refresh_credentials_callback() {
                 if ( json_last_error() !== JSON_ERROR_NONE ) {
                     brandagent_log( 'BrandAgent Refresh: ERROR - JSON parse failed: ' . json_last_error_msg() );
                 } elseif ( isset( $body['success'] ) && $body['success'] === true && ! empty( $body['hmac_secret'] ) ) {
-                    $hmac_secret_stored = brandagent_store_hmac_secret( $body['hmac_secret'] );
+                    $hmac_secret_stored = brandagent_store_hmac_secret( $body['hmac_secret'], 'woocommerce' );
                     $success = true;
                     brandagent_log( 'BrandAgent Refresh: SUCCESS - New HMAC secret handled.', array( 'hmac_stored' => $hmac_secret_stored ) );
                 } else {
@@ -309,7 +312,7 @@ function clarity_section_iframe_callback()
     $site_url = home_url();
     $hosting_type = clarity_is_wordpress_com_hosted() ? 'wpcom' : 'selfhosted';
 
-    $clarity_domain = "https://clarity.microsoft.com/embed";
+    $clarity_domain = clarity_get_embed_base_url();
 
     $query_params = "?nonce=$nonce&integration=Wordpress&wpsite=$clarity_wp_site&siteurl=$site_url&hostingtype=$hosting_type";
 
@@ -321,11 +324,6 @@ function clarity_section_iframe_callback()
     // set a QP if user is WooCommerce plugin is active
     if (class_exists('woocommerce')) {
         $query_params = $query_params . "&WooCommerce=1";
-
-        // Trigger RAI eligibility check on BA server (fire-and-forget, once per install)
-        if ( get_option( 'clarity_ba_eligible_triggered', '' ) === '' ) {
-            clarity_trigger_ba_eligibility( $site_url );
-        }
     }
 
     // set a QP if permalink structure is plain (required for Brand Agent rewrite rules)
@@ -336,6 +334,11 @@ function clarity_section_iframe_callback()
     // Add flag to indicate Brand Agent integration is supported (0.10.21+)
     // If this flag is missing, iframe knows user is on an older version
     $query_params = $query_params . "&BrandAgentSupported=1";
+
+    // Plain WordPress Brand Agent requires the 0.10.28+ connect bridge, WordPress HMAC
+    // runtime proxying, and content sync contract. Keep this separate from the legacy
+    // BrandAgentSupported marker, which is also emitted by WooCommerce-capable 0.10.27.
+    $query_params = $query_params . "&WordPressBrandAgentSupported=1";
 
     // initially set iframe src to the new users path
     $iframe_src = $clarity_domain . $query_params;
@@ -480,6 +483,59 @@ function add_event_listeners($hook)
         /* ver  */
         /* in_footer */
     );
+
+    // Inject the trusted Clarity dashboard origin (derived from the embed iframe URL) so the
+    // postMessage listeners accept and reply to the actual iframe origin in every environment
+    // (local dev host during testing, https://clarity.microsoft.com in production).
+    $embed_origin = clarity_get_embed_origin();
+    if (!empty($embed_origin)) {
+        wp_localize_script(
+            'window_listeners_js',
+            'clarityBrandAgentConfig',
+            array('trustedOrigin' => $embed_origin)
+        );
+    }
+}
+
+/**
+ * Base URL (origin + "/embed" path) of the embedded Clarity dashboard.
+ *
+ * Single source of truth for the wp-admin iframe src and the postMessage origin allow-list so
+ * they never drift apart across environments.
+ *
+ * @return string Embed base URL.
+ */
+function clarity_get_embed_base_url()
+{
+    // Local/dev override: define CLARITY_EMBED_BASE_URL in wp-config.php to point the admin iframe
+    // at a local dashboard build. The shipped default must stay production - this single value
+    // feeds both the iframe src and, via clarity_get_embed_origin() -> wp_localize_script(), the
+    // TRUSTED_CLARITY_ORIGIN postMessage allow-list in js/add_window_listeners.js, so a dev host
+    // baked in here would break the iframe and stop the listeners trusting clarity.microsoft.com
+    // on every merchant site.
+    if (defined('CLARITY_EMBED_BASE_URL') && CLARITY_EMBED_BASE_URL) {
+        return untrailingslashit(CLARITY_EMBED_BASE_URL);
+    }
+
+    return "https://clarity.microsoft.com/embed";
+}
+
+/**
+ * Origin (scheme://host[:port]) of the embedded Clarity dashboard, derived from the embed base URL.
+ *
+ * @return string Embed origin, or empty string if it cannot be parsed.
+ */
+function clarity_get_embed_origin()
+{
+    $parts = wp_parse_url(clarity_get_embed_base_url());
+    if (empty($parts['scheme']) || empty($parts['host'])) {
+        return "";
+    }
+    $origin = $parts['scheme'] . '://' . $parts['host'];
+    if (!empty($parts['port'])) {
+        $origin .= ':' . $parts['port'];
+    }
+    return $origin;
 }
 
 /**
@@ -579,6 +635,14 @@ function plugin_update_notice()
     }
 
     $plugin_slug = 'microsoft-clarity/clarity.php';
+
+    // Suppress the banner if it was already dismissed for this exact version.
+    $updates = get_site_transient('update_plugins');
+    $new_version = isset($updates->response[$plugin_slug]->new_version) ? $updates->response[$plugin_slug]->new_version : '';
+    if ($new_version !== '' && $new_version === get_option('clarity_dismissed_update_version')) {
+        return;
+    }
+
     $update_url = wp_nonce_url(
         add_query_arg(
             array(
@@ -589,9 +653,10 @@ function plugin_update_notice()
         ),
         'plugin_update_nonce'
     );
+    $dismiss_nonce = wp_create_nonce('clarity_dismiss_update_notice');
 
 ?>
-    <div class="notice notice-warning is-dismissible">
+    <div class="notice notice-warning is-dismissible clarity-update-notice">
         <p style="font-weight:700">
             <?php _e('A new version of Microsoft Clarity is available.', 'text-domain'); ?>
         </p>
@@ -601,6 +666,18 @@ function plugin_update_notice()
             </a>
         </p>
     </div>
+    <script>
+        // Persist the dismissal so the banner stays hidden for this version on future page loads.
+        document.addEventListener('click', function (e) {
+            if (e.target.classList.contains('notice-dismiss') && e.target.closest('.clarity-update-notice')) {
+                fetch(ajaxurl, {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    body: new URLSearchParams({ action: 'clarity_dismiss_update_notice', nonce: '<?php echo esc_js($dismiss_nonce); ?>' })
+                });
+            }
+        });
+    </script>
 <?php
 }
 
@@ -628,6 +705,21 @@ function plugin_perform_update()
     include_once(ABSPATH . 'wp-admin/includes/class-wp-upgrader.php');
     include_once(ABSPATH . 'wp-admin/includes/plugin.php');
 
+    // Refresh core's update data so Plugin_Upgrader has a real package to download.
+    wp_clean_plugins_cache(true);
+    wp_update_plugins();
+
+    $update_plugins = get_site_transient('update_plugins');
+    $has_pending_update = isset($update_plugins->response[$plugin_slug]);
+
+    if (! $has_pending_update) {
+        // Already on the latest version: clear the stale flag and report success, not failure.
+        set_transient('clarity_is_latest_plugin_version', '1', 24 * 60 * 60);
+        $redirect_url = add_query_arg('plugin_updated', '1', admin_url('admin.php?page=microsoft-clarity'));
+        wp_redirect(esc_url($redirect_url));
+        exit;
+    }
+
     // Create a custom skin to handle output and redirection
     $upgrader_skin = new Automatic_Upgrader_Skin();
     $upgrader      = new Plugin_Upgrader($upgrader_skin);
@@ -650,6 +742,25 @@ function plugin_perform_update()
 }
 
 /**
+* Persist dismissal of the update banner site-wide for the currently available version
+*/
+add_action('wp_ajax_clarity_dismiss_update_notice', 'clarity_dismiss_update_notice');
+function clarity_dismiss_update_notice()
+{
+    if (! current_user_can('update_plugins') || ! isset($_POST['nonce']) || ! wp_verify_nonce($_POST['nonce'], 'clarity_dismiss_update_notice')) {
+        wp_die('', '', array('response' => 403));
+    }
+
+    $plugin_slug = 'microsoft-clarity/clarity.php';
+    $updates = get_site_transient('update_plugins');
+    $new_version = isset($updates->response[$plugin_slug]->new_version) ? $updates->response[$plugin_slug]->new_version : '';
+    if ($new_version !== '') {
+        update_option('clarity_dismissed_update_version', $new_version);
+    }
+    wp_die();
+}
+
+/**
 * Display an admin notice with the status of the plugin update
 */
 add_action('admin_notices', 'plugin_admin_notices');
@@ -666,44 +777,4 @@ function plugin_admin_notices()
             <p><strong>Microsoft Clarity plugin update failed.</strong></p>
         </div>';
     }
-}
-
-/**
-* Trigger the Brand Agent eligibility (RAI) check via Clarity server proxy.
-* Fire-and-forget — the plugin doesn't need the result. The BA server caches it
-* for the Clarity Dashboard to read later. Uses a non-blocking request so the
-* admin page isn't delayed.
-*/
-function clarity_trigger_ba_eligibility( $store_url ) {
-    if ( ! class_exists( 'BrandAgent_Config' ) ) {
-        $config_path = plugin_dir_path( __FILE__ ) . 'includes/brandagent-config.php';
-        if ( file_exists( $config_path ) ) {
-            require_once $config_path;
-        } else {
-            brandagent_log( 'BrandAgent Eligibility: ERROR - Config file not found at ' . $config_path );
-            return;
-        }
-    }
-
-    $clarity_server_url = BrandAgent_Config::get_clarity_server_url();
-    $endpoint = $clarity_server_url . '/woocommerce/is-eligible';
-
-    brandagent_log( 'BrandAgent Eligibility: triggering check for ' . $store_url . ' via ' . $endpoint );
-
-    // Non-blocking: we don't need the response — just need to trigger the request
-    // so the BA server starts the RAI check.
-    $response = wp_remote_post( $endpoint, array(
-        'timeout'  => 0.01,
-        'blocking' => false,
-        'headers'  => array( 'Content-Type' => 'application/json' ),
-        'body'     => wp_json_encode( array( 'storeUrl' => $store_url ) ),
-    ) );
-
-    if ( is_wp_error( $response ) ) {
-        brandagent_log( 'BrandAgent Eligibility: ERROR - failed to trigger check', array( 'error' => $response->get_error_message() ) );
-    }
-
-    // Mark as triggered so we don't re-fire on every admin page load
-    update_option( 'clarity_ba_eligible_triggered', '1' );
-    brandagent_log( 'BrandAgent Eligibility: marked eligibility trigger as completed', array( 'store_url' => $store_url ) );
 }

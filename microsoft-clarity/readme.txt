@@ -2,12 +2,12 @@
 Contributors: sammartin,zoe7633,q3ahmed
 Tags: Microsoft, Clarity, behavioral analytics
 Requires at least: 4.0
-Tested up to: 6.9.1
-Stable tag: 0.10.24
+Tested up to: 7.0
+Stable tag: 0.10.29
 License: MIT
 License URI: https://docs.opensource.microsoft.com/content/releasing/license.html
 
-How do you make your website great? Clarity can help you quickly see what's working on your site and where people get stuck. And it's free.
+How do you make your website great? Clarity can help you quickly see what's working on your site and where people get stuck. With Brand Agents, engage visitors with an AI shopping assistant that can help achieve up to a 2X conversion lift. And it's free.
 
 == Description ==
 
@@ -32,6 +32,8 @@ The **metrics dashboard** offers a visual overview of your site's performance, p
 **Built to grow with your business.** Clarity can scale to support even the largest websites, processing more than a petabyte of data from over 100 million users per month. And it won't get in the way of your site's performance.
 
 **Stop guessing and get Clarity.** Setup is easy. You can start monitoring activity in minutes.
+
+**Brand Agents** lets you engage visitors with an AI shopping assistant that helps them discover more, decide faster, and convert with confidence. Our partners have achieved up to a 2X conversion lift.
 
 Review our [Privacy Policy](https://www.microsoft.com/en-gb/privacy/privacystatement) and [Legal Terms](https://clarity.microsoft.com/terms) for more details.
 
@@ -92,6 +94,21 @@ Visit [Clarity homepage](https://clarity.microsoft.com?utm_medium=wordpressInsta
 Check out more [frequently asked questions](https://docs.microsoft.com/en-us/clarity/faq) and our [documentation](https://docs.microsoft.com/en-us/clarity/faq).
 
 == Changelog ==
+= 0.10.29 =
+* Bugfix.
+
+= 0.10.28 =
+* Adding Brand Agents support for WordPress pages.
+
+= 0.10.27 =
+* Bugfix.
+
+= 0.10.26 =
+* Bugfix and security patches.
+
+= 0.10.25 =
+* Bugfix.
+
 = 0.10.24 =
 * Bugfix.
 

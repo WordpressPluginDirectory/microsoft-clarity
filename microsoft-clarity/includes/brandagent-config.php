@@ -17,6 +17,15 @@ if ( ! defined( 'BRANDAGENT_WEBHOOK_BASE_URL' ) ) {
 }
 
 /**
+ * Base URL path for BrandAgent WordPress content webhooks (plain-WordPress content sync).
+ * Distinct from BRANDAGENT_WEBHOOK_BASE_URL (WooCommerce): content webhooks are core-hook driven and
+ * do not require WooCommerce. See includes/brandagent-content-webhooks.php.
+ */
+if ( ! defined( 'BRANDAGENT_CONTENT_WEBHOOK_BASE_URL' ) ) {
+    define( 'BRANDAGENT_CONTENT_WEBHOOK_BASE_URL', '/api/v1/wordpress/webhooks/' );
+}
+
+/**
  * HMAC timestamp validation window in seconds (5 minutes)
  * Used for replay attack prevention
  */
@@ -165,7 +174,7 @@ class BrandAgent_Config {
      * @return string|false Backend base URL or false on failure
      */
     private static function fetch_backend_url_from_clarity() {
-        $config_endpoint = self::$clarity_server_url . '/woocommerce/brandagent/config';
+        $config_endpoint = self::get_clarity_server_url() . '/woocommerce/brandagent/config';
         
         $response = wp_remote_get( $config_endpoint, array(
             'timeout' => 10,
@@ -204,11 +213,22 @@ class BrandAgent_Config {
      * @return string Backend base URL
      */
     public static function get_backend_base_url() {
-        // // Try to get from cache first
-        // $cached_url = get_transient( self::$cache_key );
-        // if ( $cached_url !== false ) {
-        //     return $cached_url;
-        // }
+        // Local/dev override: when BRANDAGENT_BACKEND_BASE_URL is defined (e.g. via wp-config
+        // for a local wp-env store), use it directly and skip the dashboard config round-trip.
+        if ( defined( 'BRANDAGENT_BACKEND_BASE_URL' ) && BRANDAGENT_BACKEND_BASE_URL ) {
+            return rtrim( BRANDAGENT_BACKEND_BASE_URL, '/' );
+        }
+
+        // Try to get from cache first. This read is essential: get_backend_base_url() is called on the
+        // hot path of every content webhook (each post publish/update/delete), and without it every call
+        // falls through to fetch_backend_url_from_clarity() — a blocking 10s-timeout HTTP GET — on the
+        // editor's save request. The cache is invalidated by clear_cache(), which runs on plugin
+        // activation and on plugin update (see clarity.php), so a plugin update is the recovery lever
+        // when the backend URL moves.
+        $cached_url = get_transient( self::$cache_key );
+        if ( $cached_url !== false ) {
+            return $cached_url;
+        }
 
         // Fetch from Clarity server
         $backend_url = self::fetch_backend_url_from_clarity();
@@ -241,7 +261,26 @@ class BrandAgent_Config {
      * @return string Clarity server URL
      */
     public static function get_clarity_server_url() {
+        // Local/dev override: BRANDAGENT_CLARITY_SERVER_URL (e.g. via wp-config for a local
+        // wp-env store pointing at a dashboard on host.docker.internal). No-op in production.
+        if ( defined( 'BRANDAGENT_CLARITY_SERVER_URL' ) && BRANDAGENT_CLARITY_SERVER_URL ) {
+            return rtrim( BRANDAGENT_CLARITY_SERVER_URL, '/' );
+        }
         return self::$clarity_server_url;
+    }
+
+    /**
+     * URL of the frontend widget loader injected into store pages.
+     *
+     * @return string Frontend injection script URL.
+     */
+    public static function get_frontend_injection_url() {
+        // Local/dev override: BRANDAGENT_FRONTEND_INJECTION_URL points the injected loader at a
+        // self-hosted build (e.g. served same-origin from the store) instead of the CDN default.
+        if ( defined( 'BRANDAGENT_FRONTEND_INJECTION_URL' ) && BRANDAGENT_FRONTEND_INJECTION_URL ) {
+            return BRANDAGENT_FRONTEND_INJECTION_URL;
+        }
+        return 'https://adsagentclientafd-b7hqhjdrf3fpeqh2.b01.azurefd.net/frontendInjection.js';
     }
 }
 
@@ -334,6 +373,34 @@ function brandagent_generate_hmac_signature( $client_id, $timestamp, $secret_key
 }
 
 /**
+ * Whether this store is a WooCommerce store (vs a plain WordPress content store).
+ *
+ * Selects which outbound HMAC scheme the plugin uses when calling the BrandAgent backend proxy
+ * endpoints (api/config/read, api/v1/init): the backend routes on which header family is present
+ * (X-WooCommerce-* vs X-WordPress-*) and each store's merchant secret is keyed by platform, so the
+ * scheme must match how the store was provisioned or auth fails.
+ *
+ * The decision follows the platform recorded alongside the credential itself — brandagent_store_hmac_secret()
+ * writes brandagent_hmac_platform in the same path as the secret, so the two can never disagree — rather than
+ * which plugins happen to be active now. The merchant secret is provisioned once per platform and never
+ * re-keyed, so a runtime plugin change (a plain-WordPress store later activating WooCommerce — the expected
+ * blog-adds-a-shop growth path — or a WooCommerce store deactivating it) must NOT flip the scheme: doing so
+ * would send the other platform's header family and 401 against a secret key that was never written for this
+ * store, silently killing the widget and content sync.
+ *
+ * Delegates to brandagent_get_hmac_platform() rather than reading a separate option: that is the single
+ * source of truth backend routing (brandagent-endpoint.php) already uses, it deliberately does NOT infer
+ * from class_exists( 'woocommerce' ), and it carries its own pre-option backfill. With no credential stored
+ * it returns '' → false, which is safe: brandagent_content_webhooks_enabled() then fails on the missing
+ * secret immediately after.
+ *
+ * @return bool True when this store holds a WooCommerce-issued credential.
+ */
+function brandagent_is_woocommerce_store() {
+    return 'woocommerce' === brandagent_get_hmac_platform();
+}
+
+/**
  * Normalize store URL for consistent formatting
  * Matches C# backend normalization logic
  *
@@ -342,8 +409,11 @@ function brandagent_generate_hmac_signature( $client_id, $timestamp, $secret_key
  */
 function brandagent_normalize_store_url( $store_url ) {
     $normalized = strtolower( str_replace( array( 'https://', 'http://' ), '', rtrim( $store_url, '/' ) ) );
-    // Match C# normalization: replace dots and slashes with hyphens
-    return str_replace( array( '.', '/' ), '-', $normalized );
+    // Replace dots, slashes, and colons with hyphens to produce a valid Key Vault / Azure Search
+    // identifier and HMAC client id. Must stay identical to the backend C# NormalizeStoreUrl so
+    // plugin-signed requests verify; the colon only affects host:port dev stores (production
+    // home_url() has no port).
+    return str_replace( array( '.', '/', ':' ), '-', $normalized );
 }
 
 /**
@@ -364,9 +434,10 @@ function brandagent_get_client_id() {
  * The secret is encrypted with AES-256-CBC before being stored in wp_options.
  *
  * @param string $hmac_secret The HMAC secret
+ * @param string $platform    Flow that issued this secret: 'woocommerce' or 'wordpress'.
  * @return bool True on success
  */
-function brandagent_store_hmac_secret( $hmac_secret ) {
+function brandagent_store_hmac_secret( $hmac_secret, $platform ) {
     $store_url = home_url();
     $normalized_store_url = brandagent_normalize_store_url( $store_url );
     $option_key = 'brandagent_secret_key_' . $normalized_store_url;
@@ -383,6 +454,12 @@ function brandagent_store_hmac_secret( $hmac_secret ) {
     }
 
     update_option( $option_key, $encrypted );
+
+    // Record which flow issued this credential, in the same write path as the credential itself so
+    // the two can never disagree. Signing has to follow the secret we hold, not the plugins that
+    // happen to be active later.
+    update_option( 'brandagent_hmac_platform', $platform );
+
     brandagent_log( 'BrandAgent: HMAC secret stored successfully for ' . $store_url );
     return true;
 }
@@ -412,6 +489,38 @@ function brandagent_get_hmac_secret() {
 }
 
 /**
+ * Get the flow that issued the HMAC secret currently stored for this store.
+ *
+ * The signing scheme must follow the stored credential rather than the current plugin load state.
+ * A store that onboarded through WooCommerce and later deactivates WooCommerce still holds a
+ * WooCommerce-issued secret, and signing that with the WordPress scheme would fail verification.
+ *
+ * @return string 'woocommerce', 'wordpress', or '' when this store has no credential yet.
+ */
+function brandagent_get_hmac_platform() {
+    $platform = get_option( 'brandagent_hmac_platform', '' );
+    if ( $platform === 'woocommerce' || $platform === 'wordpress' ) {
+        return $platform;
+    }
+
+    // No platform recorded yet. WordPress connect ships in the same release that introduced this
+    // option and records both together, so any credential predating the option was necessarily issued
+    // by the WooCommerce flow. The WordPress opt-in marker is not credential provenance: it is written
+    // before the network connect starts and may coexist with a legacy WooCommerce secret after a failed
+    // attempt. Deliberately NOT inferred from current plugin state for the same reason.
+    if ( brandagent_get_hmac_secret() !== false ) {
+        $platform = 'woocommerce';
+        update_option( 'brandagent_hmac_platform', $platform );
+        brandagent_log( 'BrandAgent: HMAC platform backfilled as ' . $platform . ' for pre-existing credential' );
+        return $platform;
+    }
+
+    // No credential stored, so nothing can be signed yet and there is no flow to infer. Onboarding
+    // records the authoritative value; until then the caller fails closed on the missing secret.
+    return '';
+}
+
+/**
  * Delete the stored HMAC secret for this store.
  * Removes the encrypted HMAC secret from wp_options.
  *
@@ -423,6 +532,7 @@ function brandagent_delete_hmac_secret() {
     $option_key = 'brandagent_secret_key_' . $normalized_store_url;
 
     $result = delete_option( $option_key );
+    delete_option( 'brandagent_hmac_platform' );
     if ( $result ) {
         brandagent_log( 'BrandAgent: HMAC secret deleted successfully for ' . $store_url );
     } else {
