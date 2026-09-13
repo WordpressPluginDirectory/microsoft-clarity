@@ -3,6 +3,15 @@ const MessageOperation = {
   REDIRECT: 2,
   AGENT_ENABLED_CHANGE: 4,
   WORDPRESS_CONNECT: 8,
+  WORDPRESS_CONNECTOR_REQUEST: 16,
+};
+
+const CONNECTOR_OPERATIONS = {
+  status: true,
+  connect: true,
+  reauthorize: true,
+  sync: true,
+  disconnect: true,
 };
 
 // Origin of the embedded Clarity dashboard iframe. Injected from PHP (wp_localize_script) so it
@@ -170,3 +179,75 @@ const brandAgentConnectCallback = (event) => {
 };
 
 window.addEventListener("message", brandAgentConnectCallback, false);
+
+// Square connector operations. The iframe sends only action + requestId + providerId.
+// This parent holds the admin-ajax nonce and never forwards HMAC material back.
+const brandAgentConnectorCallback = (event) => {
+  if (event.origin !== TRUSTED_CLARITY_ORIGIN) return;
+  const postedMessage = event?.data;
+  if (postedMessage?.operation !== MessageOperation.WORDPRESS_CONNECTOR_REQUEST) return;
+
+  const source = event.source;
+  const requestId = typeof postedMessage.requestId === "string" ? postedMessage.requestId : "";
+  const operation = typeof postedMessage.connectorOperation === "string" ? postedMessage.connectorOperation : "";
+  const providerId = typeof postedMessage.providerId === "string" ? postedMessage.providerId : "";
+  const nonce =
+    typeof window !== "undefined" &&
+    window.clarityBrandAgentConfig &&
+    window.clarityBrandAgentConfig.connectorNonce
+      ? window.clarityBrandAgentConfig.connectorNonce
+      : "";
+
+  const respond = (success, data, error) => {
+    if (!source) {
+      return;
+    }
+    source.postMessage(
+      {
+        type: "WORDPRESS_CONNECTOR_RESPONSE",
+        requestId: requestId,
+        success: !!success,
+        data: data || null,
+        error: error || null,
+      },
+      TRUSTED_CLARITY_ORIGIN,
+    );
+  };
+
+  if (!requestId || !CONNECTOR_OPERATIONS[operation] || !nonce) {
+    respond(false, null, { code: "invalid_request", message: "Invalid connector request." });
+    return;
+  }
+
+  jQuery
+    .ajax({
+      method: "POST",
+      url: ajaxurl,
+      data: {
+        action: "brandagent_connectors",
+        nonce: nonce,
+        operation: operation,
+        providerId: providerId,
+      },
+      dataType: "json",
+    })
+    .done(function (json) {
+      if (json && json.success) {
+        respond(true, json.data, null);
+        return;
+      }
+      const message =
+        (json && json.data && json.data.message) || "The connector request failed.";
+      const code = (json && json.data && json.data.code) || "connector_request_failed";
+      respond(false, null, { code: code, message: message });
+    })
+    .fail(function (xhr) {
+      const payload = xhr && xhr.responseJSON && xhr.responseJSON.data;
+      respond(false, null, {
+        code: (payload && payload.code) || "connector_request_failed",
+        message: (payload && payload.message) || "The connector request failed.",
+      });
+    });
+};
+
+window.addEventListener("message", brandAgentConnectorCallback, false);

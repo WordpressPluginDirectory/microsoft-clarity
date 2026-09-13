@@ -340,6 +340,10 @@ function clarity_section_iframe_callback()
     // BrandAgentSupported marker, which is also emitted by WooCommerce-capable 0.10.27.
     $query_params = $query_params . "&WordPressBrandAgentSupported=1";
 
+    // Additive connector-bridge marker. Older plugins omit it so the dashboard hides
+    // Square UI; older dashboards ignore unknown query params.
+    $query_params = $query_params . "&WordPressBrandAgentConnectorsSupported=1";
+
     // initially set iframe src to the new users path
     $iframe_src = $clarity_domain . $query_params;
 
@@ -492,7 +496,10 @@ function add_event_listeners($hook)
         wp_localize_script(
             'window_listeners_js',
             'clarityBrandAgentConfig',
-            array('trustedOrigin' => $embed_origin)
+            array(
+                'trustedOrigin'  => $embed_origin,
+                'connectorNonce' => wp_create_nonce('wp_ajax_brandagent_connectors'),
+            )
         );
     }
 }

@@ -413,9 +413,10 @@ function brandagent_wordpress_has_connection() {
  * WordPressAuthUtils::BuildInboundCanonicalRequest and the two strings must stay byte-identical —
  * any divergence surfaces only as a 401, never as a useful error.
  *
- * $backend_path is the path the BRAND AGENT SERVER sees, which is not the URL we post to: these
- * calls travel through the Clarity dashboard proxy, which forwards our headers untouched. Signing
- * the proxy path would verify against the wrong string at the backend.
+ * $backend_path is the path the BRAND AGENT SERVER sees, which may differ from the URL we send
+ * to when a caller still uses the Clarity dashboard proxy. Connector calls go directly to
+ * AdsAgentServer; sign the AdsAgentServer path in either case. Signing the wrong path verifies
+ * against the wrong string at the backend.
  *
  * @param string $proxy_url    Absolute URL to send to (the Clarity dashboard proxy route).
  * @param string $backend_path Path + query as the BA server sees it, e.g. '/api/wordpress/uninstall'.
@@ -430,18 +431,27 @@ function brandagent_wordpress_sign_outbound_request( $proxy_url, $backend_path, 
 		return $headers;
 	}
 
-	$args = array(
+	$method = strtoupper( $method );
+	$args   = array(
 		'timeout' => $timeout,
 		'headers' => array_merge( array( 'Content-Type' => 'application/json' ), $headers ),
 	);
 
-	if ( strtoupper( $method ) === 'GET' ) {
+	// Keep GET/POST on the original wrappers so existing Brand Agent connect,
+	// uninstall, and proxy traffic is unchanged. Only new methods (DELETE) use
+	// wp_remote_request().
+	if ( 'GET' === $method ) {
 		return wp_remote_get( $proxy_url, $args );
 	}
 
 	$args['body'] = $body;
 
-	return wp_remote_post( $proxy_url, $args );
+	if ( 'POST' === $method ) {
+		return wp_remote_post( $proxy_url, $args );
+	}
+
+	$args['method'] = $method;
+	return wp_remote_request( $proxy_url, $args );
 }
 
 /**

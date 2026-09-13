@@ -4,7 +4,7 @@
  * Plugin Name:       Microsoft Clarity
  * Plugin URI:        https://clarity.microsoft.com/
  * Description:       With data and session replay from Clarity, you'll see how people are using your site — where they get stuck and what they love.
- * Version:           0.10.29
+ * Version:           0.10.31
  * Author:            Microsoft
  * Author URI:        https://www.microsoft.com/en-us/
  * License:           MIT
@@ -16,7 +16,9 @@ require_once plugin_dir_path(__FILE__) . '/includes/brandagent-webhooks.php';
 require_once plugin_dir_path(__FILE__) . '/includes/brandagent-custom-webhooks.php';
 require_once plugin_dir_path(__FILE__) . '/includes/brandagent-rest-api.php';
 require_once plugin_dir_path(__FILE__) . '/includes/brandagent-wordpress.php';
+require_once plugin_dir_path(__FILE__) . '/includes/brandagent-connectors.php';
 require_once plugin_dir_path(__FILE__) . '/includes/brandagent-content-webhooks.php';
+require_once plugin_dir_path(__FILE__) . '/includes/brandagents-experimental-features.php';
 require_once plugin_dir_path(__FILE__) . '/clarity-page.php';
 require_once plugin_dir_path(__FILE__) . '/clarity-hooks.php';
 require_once plugin_dir_path(__FILE__) . '/clarity-server-analytics.php';
@@ -299,6 +301,9 @@ function clrt_update_clarity_options_handler($action, $network_wide)
 			// removed the plugin from.
 			delete_option( 'brandagent_wp_connect_optin' );
 			delete_option( 'brandagent_wp_connect_attempts' );
+			delete_option( BRANDAGENT_UCP_ENABLED_OPTION );
+			delete_option( BRANDAGENT_UCP_BACKEND_BASE_URL_OPTION );
+			delete_option( BRANDAGENT_UCP_DEVELOPMENT_FLIGHT_OPTION );
 			delete_transient( 'brandagent_wp_connect_throttle' );
 			delete_transient( 'brandagent_connect_nonce' );
 			// Cleanup for the option used up to version 0.10.16. Should remove this after users migrate to 0.10.17+ where this option is no longer used.
@@ -623,6 +628,10 @@ function brandagent_register_routes() {
         'index.php?brandagent_api=1&brandagent_path=$matches[1]',
         'top'
     );
+
+    // /.well-known/ucp — registered here so activation and update flushes pick it
+    // up alongside the other Brand Agent routes.
+    brandagent_ucp_register_routes();
 }
 add_action( 'init', 'brandagent_register_routes' );
 
